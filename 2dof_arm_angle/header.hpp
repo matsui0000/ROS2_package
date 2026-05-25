@@ -270,8 +270,9 @@ void ImpactDrivenControl(ImpactState& state, int pressure_idx_pos, int pressure_
 void PressureFeedbackControl();
 
 
-void PressureFeedbackReset()
+void PressureFeedbackReset();
 void target_inverse();
+double convertPdf(double q , double torque);
 
 
 

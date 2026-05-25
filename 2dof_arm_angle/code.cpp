@@ -1,3 +1,8 @@
+//関節角度は直線となる姿勢を0度とする．
+//0~3のアクチュエータを使用．0,2が膨らむと関節角度が小さくなる方のアクチュエータ．
+//q[0]は台座側の関節角度, q[1]は手先側の関節角度．
+
+
 #include "inflatable/header.hpp"
 #include "inflatable/DataStreamClient.h"
 
@@ -225,14 +230,14 @@ void ArmControlNode::viconUpdateLoop(){
 
 
     //以下関節角度を出していく。
-    // 第1関節角
+    // 第1関節角(台座側)
     orientation.buf.q[0] = atan2f(y2 - y1, x2 - x1);
     //q0は(-π/2 , π/2)の範囲, 範囲外の場合は前ステップの値を代入
     if((orientation.buf.q[0] < -M_PI/2.0F) || (orientation.buf.q[0] > M_PI/2.0F)){
         orientation.buf.q[0] = orientation.current.q[0];
     }
 
-    // 第2関節角
+    // 第2関節角(手先側)
     orientation.buf.q[1] = atan2f(y3 - y2, x3 - x2) - orientation.buf.q[0];
     //q1は(-π/2 , π/2)の範囲, 範囲外の場合は前ステップの値を代入
     if((orientation.buf.q[1] < -M_PI/2.0F) || (orientation.buf.q[1] > M_PI/2.0F)){
@@ -256,15 +261,15 @@ void ArmControlNode::viconUpdateLoop(){
 
     // SetPositionTarget(positionTarget[0], positionTarget[1], positionTarget[2]);
 
-    printf("現在の原点の位置 (%lf, %lf, %lf)\n", positionOrigin[0], positionOrigin[1], positionOrigin[2]);
-    for(int i = 2; i < DEGREE_OF_FREEDOM * 2; i++) {
-        printf("現在のq%dの位置 (%lf, %lf, %lf)\n", i - 1, pos.current.x[i], pos.current.y[i], pos.current.z[i]);
-    }
+    //printf("現在の原点の位置 (%lf, %lf, %lf)\n", positionOrigin[0], positionOrigin[1], positionOrigin[2]);
+    //for(int i = 2; i < DEGREE_OF_FREEDOM * 2; i++) {
+    //    printf("現在のq%dの位置 (%lf, %lf, %lf)\n", i - 1, pos.current.x[i], pos.current.y[i], pos.current.z[i]);
+    //}
     for(int i = 0; i < DEGREE_OF_FREEDOM; i++) {
         printf("現在のq%dの関節角[deg]  %lf\n", i + 1, orientation.current.q[i]*180.0F/M_PI);
     }
-    printf("目標手先位置 (x=%lf, y=%lf, z=%lf)\n", pos.target.x[3], pos.target.y[3], pos.target.z[3]);
-    printf("現在手先位置 (x=%lf, y=%lf, z=%lf)\n", x3, y3, z3);
+    //printf("目標手先位置 (x=%lf, y=%lf, z=%lf)\n", pos.target.x[3], pos.target.y[3], pos.target.z[3]);
+    //printf("現在手先位置 (x=%lf, y=%lf, z=%lf)\n", x3, y3, z3);
 
 }
 
@@ -344,18 +349,6 @@ void ArmControlNode::msgCallback_base(const geometry_msgs::msg::TransformStamped
     msgCallback_base_flag = true;
 } //msgCallback_base()
 
-//返り値：視覚フィードバックによるトルク
-void VisualFeedbackControl(){
-    static unsigned int FB_cycle;
-    double torque;
-    //elementはファイル出力のためのもの。
-    torque = visual_P * (orientationTarget - orientationCurrent);
-    element[0] = visual_P * (orientationTarget - orientationCurrent);
-    FB_cycle++;
-    return;
-} //VisualFeedbackControl() 
-
-
 //目標位置、目標関節角度を設定
 void SetPositionTarget(float x3, float y3, float z3) {
     //手先目標位置を設定ArmControlNode::S
@@ -379,34 +372,105 @@ void ForwardKinematics(float q1, float q2) {
     pos.buf.z[3] = 0.0f;
 }
 
+//返り値：視覚フィードバックによるトルク
+double VisualFeedbackControl(double target_q, double current_q, int joint_num) {
+    static unsigned int FB_cycle[2] = {0, 0}; //フィードバック制御のサイクル数を数えるための変数
+    double torque = 0.0;
+/*
+    if (FB_cycle > 2) {
+        //目標値との差が閾値以下ならI項を入れる
+        if(abs(orientationTarget - orientationCurrent) < AngleFB_I_threshold){
+            orientationIntegral += ((orientationTarget_buf - orientationCurrent_buf)
+                                    + (orientationTarget - orientationCurrent))
+                                    / (2.0F * SAMPLING_FREQUENCY);
+        }
+    }
+*/
+
+//elementはファイル出力のためのもの。
+    if (FB_cycle[joint_num] > 1) {
+            //P component
+            torque = visual_P * (target_q - current_q);
+            element[joint_num] = visual_P * (target_q - current_q);
+            //I component
+            //torque += visual_I * orientationIntegral;
+            //element[1] = visual_I * orientationIntegral;
+            //D component
+            //torque += visual_D * ((orientationTarget_buf - orientationCurrent_buf) - (orientationTarget - orientationCurrent)) * SAMPLING_FREQUENCY;
+            //element[2] = visual_D * ((orientationTarget_buf - orientationCurrent_buf) - (orientationTarget - orientationCurrent)) * SAMPLING_FREQUENCY;
+
+    }
+    //次のI制御用
+    //orientationTarget_buf = orientationTarget;
+    //orientationCurrent_buf = orientationCurrent;
+
+    FB_cycle[joint_num]++;
+
+    return torque;
+} //VisualFeedbackControl() 
+
 
 //圧力フィードバック
 void PressureFeedbackControl() {
     static unsigned int FB_cycle = 0;
-    static double pressureDeviation_buf[DA_CHANNEL_NUMBER]; //前フレームでの偏差
-    static bool is_first = true;
+    //static double pressureTarget_buf[AD_CHANNEL_NUMBER];
+    //static double pressureCurrent_buf[AD_CHANNEL_NUMBER];
+    //static double pressureIntegral[AD_CHANNEL_NUMBER];
+    //static double pressureDeviation_buf[DA_CHANNEL_NUMBER]; //前フレームでの偏差
+    //static bool is_first = true;
+    //センサ値で得た圧力にローパスフィルタをかける
+    // pressureCurrentFiltered[0] = LowPassFilterPressure1(pressure.current[0], cutoffFrequencyPressure);
+    // pressureCurrentFiltered[1] = LowPassFilterPressure2(pressure.current[1], cutoffFrequencyPressure);
+    // pressureCurrentFiltered[2] = LowPassFilterPressure2(pressure.current[2], cutoffFrequencyPressure);
+    // pressureCurrentFiltered[3] = LowPassFilterPressure2(pressure.current[3], cutoffFrequencyPressure);
     pressureCurrentFiltered[0] = pressure.current[0];
     pressureCurrentFiltered[1] = pressure.current[1];
     pressureCurrentFiltered[2] = pressure.current[2];
     pressureCurrentFiltered[3] = pressure.current[3];
 
     //変数初期化
-    if(is_first){
-        for(int i = 0; i < AD_CHANNEL_NUMBER ; i++){
-            //pressureTarget_buf[i] = 0.0;
-            pressureCurrent_buf[i] = 0.0;
-            pressureIntegral[i] = 0.0;
-            }
-        is_first = false;
-    }
+    //if(is_first){
+    //    for(int i = 0; i < AD_CHANNEL_NUMBER ; i++){
+    //        pressureTarget_buf[i] = 0.0;
+    //        pressureCurrent_buf[i] = 0.0;
+    //        pressureIntegral[i] = 0.0;
+    //        }
+    //    is_first = false;
+    //}
 
     //出力値を目標値へ
     for (int i = 0; i < DEGREE_OF_FREEDOM * 2; i++) {
         pressure.output[i] = pressure.target[i];
-        //P制御
-        pressureDeviation[i] = pressure.target[i] - pressureCurrentFiltered[i];
-        pressureP[i] = pressureKP[i] * (pressure.target[i] - pressureCurrentFiltered[i]);
-        pressure.output[i] += pressureP[i];
+        //I項のインテグラル計算
+        //if (FB_cycle > 2) {
+        //    pressureIntegral[i] += ((pressureTarget_buf[i] - pressureCurrent_buf[i])
+        //                            + (pressure.target[i] - pressureCurrentFiltered[i]))
+        //                            / (2.0F * SAMPLING_FREQUENCY);
+        //}
+        //PID制御
+        if (FB_cycle > 1) {
+            //P component
+            //pressureDeviation[i] = pressure.target[i] - pressureCurrentFiltered[i];
+            pressureP[i] = pressureKP[i] * (pressure.target[i] - pressureCurrentFiltered[i]);
+
+            //I component
+            //pressureI[i] = pressureKI[i] * pressureIntegral[i];
+
+            //D component
+            //pressureD[i] = pressureKD[i] * (pressureDeviation[i] - pressureDeviation_buf[i]) * SAMPLING_FREQUENCY;
+            
+            // pressure.output[i] += pressureKD * (pressureCurrent[i] - pressure.current_buf[i]);
+            // pressureD[i] = pressureKD * (pressureCurrent[i] - pressure.current_buf[i]);
+            
+            //各項を足し合わせる
+            //P + I + D
+            pressure.output[i] += pressureP[i]; 
+
+            //Update previous value
+            //pressureTarget_buf[i] = pressure.target[i];
+            //pressureCurrent_buf[i] = pressureCurrentFiltered[i];
+            //pressureDeviation_buf[i] = pressureDeviation[i];
+        }
     }
     FB_cycle++;
     return;
@@ -414,13 +478,7 @@ void PressureFeedbackControl() {
 
 
 
-void PressureFeedbackReset(){
-    PressureFB_cycle = 0;
-    for(int i=0 ; i<DEGREE_OF_FREEDOM*2 ; i++){
-        //diviation.pressure_integral[i] = 0;
-    }
-} //PressureFeedbackReset
-
+void PressureFeedbackReset(){} //PressureFeedbackReset
 
 
 //クォータニオンを回転行列に変換する。
@@ -524,13 +582,8 @@ int CheckOverPressure_Output(void) {
 
 int DAconversion() {
     double k = (double)DA_Conversion_K;
-    printf("\n===== DAconversion =====\n"); //デバッグ用
-    printf("DA_Conversion_K = %lf\n", k); //デバッグ用
-
 	for (int i = 0; i < DA_CHANNEL_NUMBER; i++) {
-        printf("[DA BEFORE] ch=%d pressure.output=%lf\n", i, pressure.output[i]); //デバッグ用
 		voltageOutput[i] = k * pressure.output[i];
-        printf("[DA AFTER ] ch=%d voltageOutput=%lf\n", i, voltageOutput[i]); //デバッグ用
     }
 	return 0;
 }
@@ -540,24 +593,11 @@ int ADconversion() {
     double k = (double)AD_Conversion_K;
     double a = (double)AD_Conversion_A;
 
-    printf("\n===== ADconversion =====\n");
-    printf("AD_Conversion_K = %lf\n", k);
-    printf("AD_Conversion_A = %lf\n", a);
-
 	for (int i = 0; i < AD_CHANNEL_NUMBER; i++) {
-
-        printf("[AD INPUT ] ch=%d voltageInput=%lf\n", i, voltageInput[i]); //デバッグ用
-
 		pressure.current[i] = k * voltageInput[i] + a;
         if(pressure.current[i] < 0){
-
-            printf("[WARN] ch=%d pressure.current < 0 : %lf -> 0\n", i, pressure.current[i]); //デバッグ用
-
             pressure.current[i] = 0;
         }
-
-         printf("[AD OUTPUT] ch=%d pressure.current=%lf\n", i, pressure.current[i]); //デバッグ用
-
 	}
 	return 0;
 }
@@ -1025,7 +1065,7 @@ void ArmControlNode::open_log_file(){
     char filename[100];
     time_t date_info = time(NULL);
     struct tm *pnow = localtime(&date_info);
-    sprintf(filename, "/home/takahara/ros2_ws/src/inflatable/data/dof2_impact/%02d%02d_%02d%02d_%02d.csv", 
+    sprintf(filename, "/home/takahara/ros2_ws/src/inflatable/data/dof2_arm_angle/%02d%02d_%02d%02d_%02d.csv", 
         pnow->tm_mon + 1, 
         pnow->tm_mday, 
         pnow->tm_hour, 
@@ -1089,10 +1129,10 @@ void ArmControlNode::control_loop_P(){
     // 各種キー入力
     //全圧力値0
     if (key == 'r') {
-        setup_flag  = false; //いる
-        PressureFeedback_flag = false; //いる
-        VisualFeedback_flag = false; //いる
-        is_first = true; //いる
+        setup_flag  = false;
+        PressureFeedback_flag = false;
+        VisualFeedback_flag = false;
+        is_first = true;
         for (int i=0; i<DA_CHANNEL_NUMBER; i++) {
             pressure.target[i] = 0;
         }
@@ -1109,7 +1149,7 @@ void ArmControlNode::control_loop_P(){
     //初期状態
     if(key=='s'){
         setup_flag = false;
-        PressureFeedback_flag = true;
+        //PressureFeedback_flag = true;
         pressure.target[0] = pressure.base[0];
         pressure.target[1] = pressure.base[1];
         pressure.target[2] = pressure.base[2];
@@ -1126,7 +1166,8 @@ void ArmControlNode::control_loop_P(){
         VisualFeedback_flag = true;
         PressureFeedbackReset();
         PressureFeedback_flag = true;
-        orientation.target.q[0] = -30.0 / 180 * M_PI;
+        //orientation.target.q[0] = -30.0 / 180 * M_PI;
+        orientation.target.q[0] = 0 / 180 * M_PI;
         orientation.target.q[1] = -30.0 / 180 * M_PI;
         //SetPositionTarget(target_x,target_y,target_z);
     }
@@ -1152,11 +1193,7 @@ void ArmControlNode::control_loop_P(){
         timer.now_d = timer.now_t - timer.base;
         timer.sampling = timer.now_t - timer.buf;
         timer.buf = timer.now_t;
-
         now_time = timer.now_d.seconds();
-
-
-
         //時間などを表示
         printf("now_time = %lf\n", now_time);
     }
@@ -1165,15 +1202,24 @@ void ArmControlNode::control_loop_P(){
     if(VisualFeedback_flag){
         orientation.current.q[0] = LowPassFilterAngle0(orientation.current.q[0], 5.0);
         orientation.current.q[1] = LowPassFilterAngle1(orientation.current.q[1], 5.0);
-        VisualFeedbackControl();
-        torque -= CompensateGravity();
-        torque += VisualFeedbackControl();
-        Pdf = convertPdf(orientationTarget,torque);
-        printf("Pdf=%lf\n",Pdf);
-        pressureTarget[2] = basePressure - Pdf / 2.0F ;
-        pressureTarget[3] = basePressure + Pdf / 2.0F ;
-    }
+        for (int i = 0; i < DEGREE_OF_FREEDOM; i++){
+            double required_torque = VisualFeedbackControl(orientation.target.q[i], orientation.current.q[i], i);
+            double pdf = convertPdf(orientation.target.q[i], required_torque);
+            if (i == 0) {
+                // 手先側の関節を負の方向（角度が小さくなる方向）に動かすには ch0 を膨らませ、ch1 を縮める
+                // 正の方向（角度が大きくなる方向）に動かすには ch1 を膨らませ、ch0 を縮める
+                pressure.target[0] = basePressure - pdf / 2.0F; // ch0: 膨らむと小さくなる
+                pressure.target[1] = basePressure + pdf / 2.0F; // ch1: 膨らむと大きくなる
+            } 
+            else if (i == 1) {
+                // 台座側の関節も同様に、負の方向（角度が小さくなる方向）に動かすには ch2 を膨らませ、ch3 を縮める
+                // 同様に、正の方向に動かすには ch3 を膨らませ、ch2 を縮める
+                pressure.target[2] = basePressure - pdf / 2.0F; // ch2: 膨らむと小さくなる
+                pressure.target[3] = basePressure + pdf / 2.0F; // ch3: 膨らむと大きくなる
+            }
+        }
 
+    }
 
     //s(初期状態)を押し、rを押すまでの間
     if (PressureFeedback_flag) {
