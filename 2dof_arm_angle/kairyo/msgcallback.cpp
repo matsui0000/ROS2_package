@@ -1,4 +1,21 @@
+#include <cmath>
+#include <geometry_msgs/msg/transform_stamped.hpp>
+#include "inflatable/msg/voltage_input.hpp"
 
+#include "utils.hpp"
+#include "dof2_arm_angle_control.hpp"
+
+
+//subscribe voltage
+void ArmControlNode::msgCallback2(const inflatable::msg::VoltageInput::SharedPtr sub_msg) {
+    for(int i = 0; i < AD_CHANNEL_NUMBER; i++) {
+        voltageInput[i] = sub_msg->voltage_input[i];
+    }
+    ADconversion();
+} //msgCallback2()
+
+
+//アームのサブジェクト
 void ArmControlNode::msgCallback_hand(const geometry_msgs::msg::TransformStamped::SharedPtr hand_pose){
     double x,y,z,w;
     double theta; //求めたい手先角度
@@ -58,6 +75,8 @@ void ArmControlNode::msgCallback_hand(const geometry_msgs::msg::TransformStamped
 
     q_dot = (orientationCurrent_raw - orientation_buf) * SAMPLING_FREQUENCY;
 } //msgCallback_hand()
+
+
 
 //ベースのサブジェクト
 void ArmControlNode::msgCallback_base(const geometry_msgs::msg::TransformStamped::SharedPtr pose){

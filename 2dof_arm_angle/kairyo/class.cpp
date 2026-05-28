@@ -1,3 +1,11 @@
+#include "class.hpp"
+#include "2dof_header.hpp"
+#include "utils.hpp"
+#include "rclcpp/rclcpp.hpp"
+#include <cmath>
+#include <stdio.h>
+
+
 Time::Time():
   now_d(0, 0), //add
   sampling(0, 0), //add

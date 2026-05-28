@@ -1,26 +1,83 @@
 #pragma once
 
-#include <stdio.h>
+
 #include <fstream>
 #include <cmath>
 #include <iomanip>
-#include <termios.h>
-#include <math.h>
-#include "rclcpp/rclcpp.hpp"
-#include <std_msgs/msg/float32.hpp>
-#include <geometry_msgs/msg/pose_stamped.hpp>
-#include <geometry_msgs/msg/transform_stamped.hpp>
-#include <geometry_msgs/msg/quaternion.hpp>
-#include <iostream>
-#include <cmath>
 #include <string>
 #include <vector>
-#include <chrono>
 #include <sstream>  
 #include <sys/stat.h> 
+
+
+#include "rclcpp/rclcpp.hpp"
+#include <geometry_msgs/msg/transform_stamped.hpp>
+
+
+#include "utils.hpp"
+#include "class.hpp"
+#include "2dof_header.hpp"
 #include "inflatable/DataStreamClient.h"
 #include "inflatable/msg/voltage_output.hpp"
 #include "inflatable/msg/voltage_input.hpp"
+
+#define FILE_OUTPUT //ファイル出力するならコメントアウト外す
+
+//未使用定数
+extern double diffPressure; //使ってない
+extern double link_length;  //リンクの長さ
+extern double link_angle_deg; //リンクの膨張角度[deg]
+extern bool q_dot_flag; //q_dotで場合分けをするかのフラグ
+extern bool joint_stiffness_flag; //trueなら関節剛性の補正あり
+extern bool torque_compensate_flag;
+extern double cutoffFrequencyPressure;      //圧力ローパスフィルタのカットオフ周波数[Hz]
+extern double orientationTarget_deg;   //目標関節角[deg] 
+
+//convertPdfで使う定数
+extern double link_angle;  //リンクの膨張角度[rad]
+//extern double link_angle_deg; //リンクの膨張角度[deg]
+
+
+//msgcallback_handで使う
+extern double q_dot ;  //qの微分値
+extern double orientationCurrent_raw;  //ローパスフィルタなしでの関節角[rad]
+
+//pressurefeedback controlで使う
+extern double pressureCurrentFiltered[AD_CHANNEL_NUMBER]; //ローパスフィルタ後の圧力値
+extern double pressureDeviation[DA_CHANNEL_NUMBER];//目標値とセンサ値の圧力の偏差[レギュレータ番号]
+extern double pressureP[DA_CHANNEL_NUMBER];        //P項による圧力値[レギュレータ番号] 4,3しか使わない
+extern double pressureI[DA_CHANNEL_NUMBER];        //I
+extern double pressureD[DA_CHANNEL_NUMBER];        //D
+
+//visualfeedbackcontrolで使う
+extern double orientationTarget;       //目標関節角[rad]
+
+
+extern double orientationCurrent;      //15Hzローパスフィルタでの関節角[rad]
+extern double orientationCurrent2;     //10Hzローパスフィルタでの関節角[rad]
+extern double orientationCurrent3;     //5Hzローパスフィルタでの関節角[rad]
+extern double orientation_buf;         //前ステップの角度
+extern double orientationYaw;          //台座部分の角度
+extern double AngleFB_I_threshold ; //目標角度と現在の角度が閾値以上ならI項を入れない
+extern double element[3];              //視覚フィードバック制御の各項の値
+// double  c[5] = {-0.007298062, 0.06181, -0.181226594, 0.194224742, 0};   //圧力-トルク変換の特性係数
+extern double c[5];   //20250813更新
+
+extern float positionMarker[THE_NUMBER_OF_MARKERS][3];   //マーカーの座標
+extern float positionArm[5][3];                                //アームについているマーカーの座標
+extern float positionOrigin[3];                                //原点の座標（ベースの中心）
+extern float positionTarget[3];                             //目標位置の座標
+
+
+
+
+extern double pressureKP[DA_CHANNEL_NUMBER];
+extern double pressureKI[DA_CHANNEL_NUMBER];
+extern double pressureKD[DA_CHANNEL_NUMBER];
+extern double visual_P;
+extern double visual_I;
+extern double visual_D;
+
 
 
 
