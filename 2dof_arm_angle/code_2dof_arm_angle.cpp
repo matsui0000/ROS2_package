@@ -391,7 +391,7 @@ double VisualFeedbackControl(double target_q, double current_q, int joint_num) {
     if (FB_cycle[joint_num] > 1) {
             //P component
             torque = visual_P * (target_q - current_q);
-            element[joint_num] = visual_P * (target_q - current_q);
+            P_element[joint_num] = visual_P * (target_q - current_q);
             //I component
             //torque += visual_I * orientationIntegral;
             //element[1] = visual_I * orientationIntegral;
@@ -478,7 +478,12 @@ void PressureFeedbackControl() {
 
 
 
-void PressureFeedbackReset(){} //PressureFeedbackReset
+void PressureFeedback_reset(){
+    //PressureFB_cycle = 0;
+    //for(int i=0 ; i<DEGREE_OF_FREEDOM*2 ; i++){
+    //    diviation.pressure_integral[i] = 0;
+    //}
+} //PressureFeedback_reset
 
 
 //クォータニオンを回転行列に変換する。
@@ -1065,7 +1070,7 @@ void ArmControlNode::open_log_file(){
     char filename[100];
     time_t date_info = time(NULL);
     struct tm *pnow = localtime(&date_info);
-    sprintf(filename, "/home/takahara/ros2_ws/src/inflatable/data/dof2_arm_angle/%02d%02d_%02d%02d_%02d.csv", 
+    sprintf(filename, "/home/takahara/ros2_ws/data/dof2_arm_angle/%02d%02d_%02d%02d_%02d.csv", 
         pnow->tm_mon + 1, 
         pnow->tm_mday, 
         pnow->tm_hour, 
@@ -1075,39 +1080,30 @@ void ArmControlNode::open_log_file(){
 
 
     ofs_ << "cycle" << ',' << "Time[s]" << ',';
+    
     ofs_ << "x3 target[m]" << ',' << "y3 target[m]" << ',' << "z3 target[m]" << ','
         << "x3[m]" << ',' << "y3[m]" << ',' << "z3[m]" << ','
         << "deviation_x3[m]" << ',' << "deviation_y3[m]" << ',' << "deviation_z3[m]" << ',';
     ofs_ << "x2[m]" << ',' << "y2[m]" << ',' << "z2[m]" << ',';
+    
     ofs_ << "q1 target[deg]" << ',' << "q1 current[deg]" << ',' 
         << "q2 target[deg]" << ',' << "q2 current[deg]" << ',';
     for (int i = 0; i < DEGREE_OF_FREEDOM * 2; i++) { 
-        ofs_ << "Target Pressure" << i << "[kPa]" << ',' << "Output Pressure" << i << "[kPa]" << ',' << "Current Pressure" << i << "[kPa]" << "," << "Current Pressure" << i << "_" << cutoffFrequencyPressure << "Hz" << "[kPa]" << ","
-            << "PressureP"<< i << "," << "PressureI" << i << ',' << "PressureD"<< i << ","; 
+        ofs_ << "Target Pressure" << i << "[kPa]" << ',' 
+             << "Output Pressure" << i << "[kPa]" << ',' 
+             << "Current Pressure" << i << "[kPa]" << "," 
+             << "Current Pressure" << i << "_" << cutoffFrequencyPressure << "Hz" << "[kPa]" << ","
+             << "PressureP"<< i << "," 
+             << "PressureI" << i << ','
+             << "PressureD"<< i << ","; 
     }
     ofs_ << "Link Output1" << ',' << "Link Current1" << ','
-        << "Link Output2" << ',' << "Link Current2" << ',';
+         << "Link Output2" << ',' << "Link Current2" << ',';
     for (int i = 0; i < DEGREE_OF_FREEDOM * 2; i++) {
-        ofs_ << "Base Pressure" << i << "[deg]" << ','; 
+        ofs_ << "Base Pressure" << i << "[kPa]" << ','; 
     }
-    ofs_ << "visualP " << visual_P << ',' << "visualI " << visual_I << ',' << "visualD " << visual_D << ',';
-    for (int i = 0; i < DEGREE_OF_FREEDOM; i++) {
-        ofs_ << "PositiveImpact_count_q" << i + 1 << ',' << "NegativeImpact_count_q" << i + 1 << ',';
-        ofs_ << "inputstart_cycle_q" << i + 1 << ',' << "inputdown_cycle_q" << i + 1 << ',';
-    }
-    // ここから中身なし列
-    for (int i = 0; i < DEGREE_OF_FREEDOM; i++) {
-        ofs_ << "q" << i + 1 << "p_h[kPa]" << impactState[i].p_h << ','
-            << "q" << i + 1 << "p_s[kPa]" << impactState[i].p_s << ','
-            << "q" << i + 1 << "t_w[s]" << impactState[i].t_w << ','
-            << "q" << i + 1 << "t_i[s]" << impactState[i].t_i << ','
-            << "q" << i + 1 << "position_threshold[m]" << impactState[i].position_threshold << ',';
-    }
-    for (int i = 0; i < DEGREE_OF_FREEDOM * 2; i++) {
-        ofs_ << "PressureKP" << i << " " << pressureKP[i] << ',' 
-            << "PressureKI" << i << " " << pressureKI[i] << ',' 
-            << "PressureKD" << i << " " << pressureKD[i] << ',';
-    }
+    ofs_ << "q1 P_element" << ',' << "q2 P_element" << ',';
+
     ofs_ << std::endl;
 }
 
@@ -1149,7 +1145,8 @@ void ArmControlNode::control_loop_P(){
     //初期状態
     if(key=='s'){
         setup_flag = false;
-        //PressureFeedback_flag = true;
+        VisualFeedback_flag = false;
+        PressureFeedback_flag = true;
         pressure.target[0] = pressure.base[0];
         pressure.target[1] = pressure.base[1];
         pressure.target[2] = pressure.base[2];
@@ -1162,9 +1159,9 @@ void ArmControlNode::control_loop_P(){
 
     //目標角度まで移動
     if(key=='b'){
+        PressureFeedbackReset();
         setup_flag = true;
         VisualFeedback_flag = true;
-        PressureFeedbackReset();
         PressureFeedback_flag = true;
         //orientation.target.q[0] = -30.0 / 180 * M_PI;
         orientation.target.q[0] = 0 / 180 * M_PI;
@@ -1235,7 +1232,7 @@ void ArmControlNode::control_loop_P(){
 
     //Publish VoltageOutput.msg
     pub_msg_.voltage_output.clear();
-    pub_msg_.voltage_output.shrink_to_fit();    //いらんかも
+    //pub_msg_.voltage_output.shrink_to_fit();    //いらんかも
     for (int i = 0; i < DA_CHANNEL_NUMBER; i++) {
         pub_msg_.voltage_output.emplace_back(voltageOutput[i]);
     }
@@ -1245,25 +1242,32 @@ void ArmControlNode::control_loop_P(){
 #ifdef FILE_OUTPUT
     if(setup_flag){
     ofs_ << cycle << ","<< timer.now_d.seconds() << ',';
+    
     ofs_ << pos.target.x[3] << ',' << pos.target.y[3] << ',' << pos.target.z[3] << ','
-        << pos.current.x[3] << ',' << pos.current.y[3] << ',' << pos.current.z[3] << ','
-        << pos.deviation.x[3] << ',' << pos.deviation.y[3] << ',' << pos.deviation.z[3] << ',';
+         << pos.current.x[3] << ',' << pos.current.y[3] << ',' << pos.current.z[3] << ','
+         << pos.deviation.x[3] << ',' << pos.deviation.y[3] << ',' << pos.deviation.z[3] << ',';
     ofs_ << pos.current.x[2] << ',' << pos.current.y[2] << ',' << pos.current.z[2] << ',';
+    
     ofs_ << orientation.target.q[0] * 180 / M_PI << ',' << orientation.current.q[0] * 180 / M_PI << ','
-        << orientation.target.q[1] * 180 / M_PI << ',' << orientation.current.q[1] * 180 / M_PI << ',';
+         << orientation.target.q[1] * 180 / M_PI << ',' << orientation.current.q[1] * 180 / M_PI << ',';
+    
     for (int i = 0; i < DEGREE_OF_FREEDOM * 2; i++) {
-        ofs_ << pressure.target[i] << ',' << pressure.output[i] << ',' << pressure.current[i] << ',' << pressureCurrentFiltered[i] << ',' << pressureP[i] << ',' << pressureI[i] << ',' << pressureD[i] << ',';
+        ofs_ << pressure.target[i] << ',' 
+             << pressure.output[i] << ',' 
+             << pressure.current[i] << ',' 
+             << pressureCurrentFiltered[i] << ',' 
+             << pressureP[i] << ',' 
+             << pressureI[i] << ',' 
+             << pressureD[i] << ',';
     }
     ofs_ << pressure.output[LINK_CHANNEL_NUMBER1] << ',' << pressure.current[LINK_CHANNEL_NUMBER1] << ','
-        << pressure.output[LINK_CHANNEL_NUMBER2] << ',' << pressure.current[LINK_CHANNEL_NUMBER2] << ',';
+         << pressure.output[LINK_CHANNEL_NUMBER2] << ',' << pressure.current[LINK_CHANNEL_NUMBER2] << ',';
+    
     for (int i = 0; i < DEGREE_OF_FREEDOM * 2; i++) {
         ofs_ << pressure.base[i] << ','; 
     }
-    ofs_ << element[0] << ',' << element[1] << ',' << element[2] << ',';
-    for (int i = 0; i < DEGREE_OF_FREEDOM; i++) {
-        ofs_ << impactState[i].PositiveImpact_count << ',' << impactState[i].NegativeImpact_count << ',';
-        ofs_ << impactState[i].inputstart_cycle << ',' << impactState[i].inputdown_cycle << ',';
-    }
+    ofs_ << P_element[0] << ',' << P_element[1] << ',';
+
     ofs_ << std::endl;
     }
 #endif
