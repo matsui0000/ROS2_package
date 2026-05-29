@@ -3,8 +3,8 @@
 //q[0]は台座側の関節角度, q[1]は手先側の関節角度．
 
 
-#include "inflatable/header.hpp"
-#include "inflatable/DataStreamClient.h"
+#include "inflatable/program_header/dof2_arm_angle.hpp"
+#include "inflatable/DataStream_and_contec/DataStreamClient.h"
 
 
 Time::Time():
@@ -47,8 +47,9 @@ RobotParameter::RobotParameter():
     torque_g_rate(0.5F),  //重力補償トルクのゲイン
     //link{ 0.22F, 0.130F, 0.155F},
     //link{ 0.215F, 0.160F, 0.160F, 0.140F},
-    link{0.210F, 0.160F, 0.160F}   //各リンクの長さ[m] 第一リンクは台座ボルトから関節までの長さ
-    // link_g{0.0F, 0.0F, 0.0F, 0.0F},
+    link{0.210F, 0.160F, 0.160F},   //各リンクの長さ[m] 第一リンクは台座ボルトから関節までの長さ
+    //link_g{0.0F, 0.0F, 0.0F, 0.0F},
+    link_g{0.0F, 0.0F} //各リンクの重心位置[m] 第一リンクは台座ボルトから重心までの長さ
     // link_angle{80.0F * M_PI / 180.0F , 35.0F * M_PI / 180.0F , 35.0F * M_PI / 180.0F , 35.0F * M_PI / 180.0F },
     // m_l{0.015F, 0.055F,0.055F, 0.055F+0.005F*5/*+0.20*/},
     // m_a{0.010F, 0.028F, 0.028, 0.028F+GRAPPING_WEIGHT},
@@ -133,6 +134,44 @@ base {  BASE_PRESSURE,  //0
 Pressure::~Pressure() {
 }
 
+
+double LowPassFilter::Filter(double input, double freq) {
+    // 1. 無効な値 (NaN) のチェック
+    if (std::isnan(input)) {
+        return input;
+    }
+
+    // 2. フィルタ係数の計算
+    double samplerate = (double)SAMPLING_FREQUENCY;
+    double q = sqrt(2.0) / 2.0f;
+    double omega = 2.0f * M_PI * freq / samplerate;
+    double alpha = sin(omega) / (2.0f * q);
+
+    double a0 =  1.0f + alpha;
+    double a1 = -2.0f * cos(omega);
+    double a2 =  1.0f - alpha;
+    double b0 = (1.0f - cos(omega)) / 2.0f;
+    double b1 =  1.0f - cos(omega);
+    double b2 = (1.0f - cos(omega)) / 2.0f;
+
+    // 3. フィルタリング処理
+    double output;
+    if (cycle_ < 2) {
+        output = input;
+    } else {
+        output = b0/a0 * input + b1/a0 * in1_  + b2/a0 * in2_
+                                - a1/a0 * out1_ - a2/a0 * out2_;
+    }
+
+    // 4. 過去の記憶（状態）の更新
+    in2_ = in1_;
+    in1_ = input;
+    out2_ = out1_;
+    out1_ = output;
+    cycle_++;
+
+    return output;
+}
 
 using namespace ViconDataStreamSDK::CPP;
 using namespace std::chrono_literals;
@@ -335,9 +374,9 @@ void ArmControlNode::msgCallback_hand(const geometry_msgs::msg::TransformStamped
 
     //ローパスフィルターに通す
     //関数ごとに前ステップの入力が残っているので関数が分けてある
-    orientationCurrent = LowPassFilterD1(orientationCurrent_raw, 15.0);
-    orientationCurrent2 = LowPassFilterD2(orientationCurrent_raw, 10.0);
-    orientationCurrent3 = LowPassFilterD3(orientationCurrent_raw, 5.0);
+    orientationCurrent = LowPassFilter_D1.Filter(orientationCurrent_raw, 15.0);
+    orientationCurrent2 = LowPassFilter_D2.Filter(orientationCurrent_raw, 10.0);
+    orientationCurrent3 = LowPassFilter_D3.Filter(orientationCurrent_raw, 5.0);
 
     q_dot = (orientationCurrent_raw - orientation_buf) * SAMPLING_FREQUENCY;
 } //msgCallback_hand()
@@ -373,40 +412,44 @@ void ForwardKinematics(float q1, float q2) {
 }
 
 //返り値：視覚フィードバックによるトルク
-double VisualFeedbackControl(double target_q, double current_q, int joint_num) {
+
+double VisualFeedbackControl(double target_q, double current_q, int joint_num) {//aaaaa
     static unsigned int FB_cycle[2] = {0, 0}; //フィードバック制御のサイクル数を数えるための変数
-    double torque = 0.0;
+    static double orientationIntegral[2] = {0.0F, 0.0F}; //I項の積分値を保存するための変数
+    static double orientationTarget_buf[2] = {0.0F, 0.0F}; //前フレームの目標関節角度を保存するための変数
+    static double orientationCurrent_buf[2] = {0.0F, 0.0F}; //前フレームの現在関節角度を保存するための変数
 /*
-    if (FB_cycle > 2) {
+    if (FB_cycle[joint_num] > 2) {
         //目標値との差が閾値以下ならI項を入れる
-        if(abs(orientationTarget - orientationCurrent) < AngleFB_I_threshold){
-            orientationIntegral += ((orientationTarget_buf - orientationCurrent_buf)
-                                    + (orientationTarget - orientationCurrent))
+        if(abs(target_q - current_q) < AngleFB_I_threshold){
+            orientationIntegral[joint_num] += ((orientationTarget_buf[joint_num] - orientationCurrent_buf[joint_num])
+                                    + (orientationTarget[joint_num] - orientationCurrent[joint_num]))
                                     / (2.0F * SAMPLING_FREQUENCY);
         }
     }
-*/
+        */
 
 //elementはファイル出力のためのもの。
     if (FB_cycle[joint_num] > 1) {
             //P component
-            torque = visual_P * (target_q - current_q);
+            param.torque[joint_num] = visual_P * (target_q - current_q);
             P_element[joint_num] = visual_P * (target_q - current_q);
             //I component
-            //torque += visual_I * orientationIntegral;
-            //element[1] = visual_I * orientationIntegral;
+            //param.torque[joint_num] += visual_I * orientationIntegral[joint_num];
+
+            //I_element[joint_num] = visual_I * orientationIntegral[joint_num];
             //D component
-            //torque += visual_D * ((orientationTarget_buf - orientationCurrent_buf) - (orientationTarget - orientationCurrent)) * SAMPLING_FREQUENCY;
-            //element[2] = visual_D * ((orientationTarget_buf - orientationCurrent_buf) - (orientationTarget - orientationCurrent)) * SAMPLING_FREQUENCY;
+            //param.torque[joint_num] += visual_D * ((orientationTarget_buf[joint_num] - orientationCurrent_buf[joint_num]) - (orientationTarget[joint_num] - orientationCurrent[joint_num])) * SAMPLING_FREQUENCY;
+            //D_element[joint_num] = visual_D * ((orientationTarget_buf[joint_num] - orientationCurrent_buf[joint_num]) - (orientationTarget[joint_num] - orientationCurrent[joint_num])) * SAMPLING_FREQUENCY;
 
     }
     //次のI制御用
-    //orientationTarget_buf = orientationTarget;
-    //orientationCurrent_buf = orientationCurrent;
+    //orientationTarget_buf[joint_num] = orientationTarget[joint_num];
+    //orientationCurrent_buf[joint_num] = orientationCurrent[joint_num];
 
     FB_cycle[joint_num]++;
 
-    return torque;
+    return param.torque[joint_num];
 } //VisualFeedbackControl() 
 
 
@@ -418,11 +461,6 @@ void PressureFeedbackControl() {
     //static double pressureIntegral[AD_CHANNEL_NUMBER];
     //static double pressureDeviation_buf[DA_CHANNEL_NUMBER]; //前フレームでの偏差
     //static bool is_first = true;
-    //センサ値で得た圧力にローパスフィルタをかける
-    // pressureCurrentFiltered[0] = LowPassFilterPressure1(pressure.current[0], cutoffFrequencyPressure);
-    // pressureCurrentFiltered[1] = LowPassFilterPressure2(pressure.current[1], cutoffFrequencyPressure);
-    // pressureCurrentFiltered[2] = LowPassFilterPressure2(pressure.current[2], cutoffFrequencyPressure);
-    // pressureCurrentFiltered[3] = LowPassFilterPressure2(pressure.current[3], cutoffFrequencyPressure);
     pressureCurrentFiltered[0] = pressure.current[0];
     pressureCurrentFiltered[1] = pressure.current[1];
     pressureCurrentFiltered[2] = pressure.current[2];
@@ -478,12 +516,12 @@ void PressureFeedbackControl() {
 
 
 
-void PressureFeedback_reset(){
+void PressureFeedbackReset(){
     //PressureFB_cycle = 0;
     //for(int i=0 ; i<DEGREE_OF_FREEDOM*2 ; i++){
     //    diviation.pressure_integral[i] = 0;
     //}
-} //PressureFeedback_reset
+} //PressureFeedbackReset
 
 
 //クォータニオンを回転行列に変換する。
@@ -642,299 +680,7 @@ void LowPassFilterMarkers() {
     }
 }//LowPassFilterMarkers()
 
-double LowPassFilterPressure1(double input, double freq){
-    double samplerate = (double)SAMPLING_FREQUENCY;  //サンプリング周波数
-    //double freq = 5;  //カットオフ周波数
-    double q = sqrtf(2.0) / 2.0;    //フィルタのQ値
-    double omega = 2.0f * 3.14159265f * freq/samplerate;
-    double alpha = sin(omega) / (2.0f * q);
- 
-    double a0 =  1.0f + alpha;
-    double a1 = -2.0f * cos(omega);
-    double a2 =  1.0f - alpha;
-    double b0 = (1.0f - cos(omega)) / 2.0f;
-    double b1 =  1.0f - cos(omega);
-    double b2 = (1.0f - cos(omega)) / 2.0f;
 
-    double output;
-    static double in1, in2, out1, out2; //0:x, 1:y, 2:z
-    static unsigned int cycle;
-
-    if(std::isnan(input)){
-        return input;
-    }
-    if(cycle < 2){
-        output = input;
-    }else{
-        output = b0/a0 * input + b1/a0 * in1  + b2/a0 * in2
-                                - a1/a0 * out1 - a2/a0 * out2;
-    }
-    in2 = in1;       // 2つ前の入力信号を更新
-    in1 = input;  // 1つ前の入力信号を更新
-
-    out2 = out1;      // 2つ前の出力信号を更新
-    out1 = output; // 1つ前の出力信号を更新
-
-    cycle++;
-    return output;
-}//LowPassFilterPressure1()
-
-double LowPassFilterPressure2(double input, double freq){
-    double samplerate = (double)SAMPLING_FREQUENCY;  //サンプリング周波数
-    //double freq = 5;  //カットオフ周波数
-    double q = sqrtf(2.0) / 2.0;    //フィルタのQ値
-    double omega = 2.0f * 3.14159265f * freq/samplerate;
-    double alpha = sin(omega) / (2.0f * q);
- 
-    double a0 =  1.0f + alpha;
-    double a1 = -2.0f * cos(omega);
-    double a2 =  1.0f - alpha;
-    double b0 = (1.0f - cos(omega)) / 2.0f;
-    double b1 =  1.0f - cos(omega);
-    double b2 = (1.0f - cos(omega)) / 2.0f;
-
-    double output;
-    static double in1, in2, out1, out2; //0:x, 1:y, 2:z
-    static unsigned int cycle;
-
-    if(std::isnan(input)){
-        return input;
-    }
-    if(cycle < 2){
-        output = input;
-    }else{
-        output = b0/a0 * input + b1/a0 * in1  + b2/a0 * in2
-                                - a1/a0 * out1 - a2/a0 * out2;
-    }
-    in2 = in1;       // 2つ前の入力信号を更新
-    in1 = input;  // 1つ前の入力信号を更新
-
-    out2 = out1;      // 2つ前の出力信号を更新
-    out1 = output; // 1つ前の出力信号を更新
-
-    cycle++;
-    return output;
-}//LowPassFilterPressure2()
-
-double LowPassFilterD1(double input, double freq){
-    double samplerate = (double)SAMPLING_FREQUENCY;  //サンプリング周波数
-    //double freq = 5;  //カットオフ周波数
-    double q = sqrtf(2.0) / 2.0;    //フィルタのQ値
-    double omega = 2.0f * 3.14159265f * freq/samplerate;
-    double alpha = sin(omega) / (2.0f * q);
- 
-    double a0 =  1.0f + alpha;
-    double a1 = -2.0f * cos(omega);
-    double a2 =  1.0f - alpha;
-    double b0 = (1.0f - cos(omega)) / 2.0f;
-    double b1 =  1.0f - cos(omega);
-    double b2 = (1.0f - cos(omega)) / 2.0f;
-
-    double output;
-    static double in1, in2, out1, out2; //0:x, 1:y, 2:z
-    static unsigned int cycle;
-    if(std::isnan(input)){
-        return input;
-    }
-    if(cycle < 2){
-        output = input;
-    }else{
-        output = b0/a0 * input + b1/a0 * in1  + b2/a0 * in2
-                                - a1/a0 * out1 - a2/a0 * out2;
-    }
-    in2  = in1;       // 2つ前の入力信号を更新
-    in1 = input;  // 1つ前の入力信号を更新
-
-    out2 = out1;      // 2つ前の出力信号を更新
-    out1 = output; // 1つ前の出力信号を更新
-
-    cycle++;
-    return output;
-}//LowPassFilterD1()
-
-//input->output freq=cutoff frequency
-double LowPassFilterD2(double input, double freq){
-    double samplerate = (double)SAMPLING_FREQUENCY;  //サンプリング周波数
-    //double freq = 5;  //カットオフ周波数
-    double q = sqrtf(2.0) / 2.0;    //フィルタのQ値
-    double omega = 2.0f * 3.14159265f * freq/samplerate;
-    double alpha = sin(omega) / (2.0f * q);
- 
-    double a0 =  1.0f + alpha;
-    double a1 = -2.0f * cos(omega);
-    double a2 =  1.0f - alpha;
-    double b0 = (1.0f - cos(omega)) / 2.0f;
-    double b1 =  1.0f - cos(omega);
-    double b2 = (1.0f - cos(omega)) / 2.0f;
-
-    double output;
-    static double in1, in2, out1, out2; //0:x, 1:y, 2:z
-    static unsigned int cycle;
-    if(std::isnan(input)){
-        return input;
-    }
-    if(cycle < 2){
-        output = input;
-    }else{
-        output = b0/a0 * input + b1/a0 * in1  + b2/a0 * in2
-                                - a1/a0 * out1 - a2/a0 * out2;
-    }
-    in2  = in1;       // 2つ前の入力信号を更新
-    in1 = input;  // 1つ前の入力信号を更新
-
-    out2 = out1;      // 2つ前の出力信号を更新
-    out1 = output; // 1つ前の出力信号を更新
-
-    cycle++;
-    return output;
-}//LowPassFilterD2()
-
-//input->output freq=cutoff frequency
-double LowPassFilterD3(double input, double freq){
-    double samplerate = (double)SAMPLING_FREQUENCY;  //サンプリング周波数
-    //double freq = 5;  //カットオフ周波数
-    double q = sqrtf(2.0) / 2.0;    //フィルタのQ値
-    double omega = 2.0f * 3.14159265f * freq/samplerate;
-    double alpha = sin(omega) / (2.0f * q);
- 
-    double a0 =  1.0f + alpha;
-    double a1 = -2.0f * cos(omega);
-    double a2 =  1.0f - alpha;
-    double b0 = (1.0f - cos(omega)) / 2.0f;
-    double b1 =  1.0f - cos(omega);
-    double b2 = (1.0f - cos(omega)) / 2.0f;
-
-    double output;
-    static double in1, in2, out1, out2; //0:x, 1:y, 2:z
-    static unsigned int cycle;
-    if(std::isnan(input)){
-        return input;
-    }
-    if(cycle < 2){
-        output = input;
-    }else{
-        output = b0/a0 * input + b1/a0 * in1  + b2/a0 * in2
-                                - a1/a0 * out1 - a2/a0 * out2;
-    }
-    in2  = in1;       // 2つ前の入力信号を更新
-    in1 = input;  // 1つ前の入力信号を更新
-
-    out2 = out1;      // 2つ前の出力信号を更新
-    out1 = output; // 1つ前の出力信号を更新
-
-    cycle++;
-    return output;
-}//LowPassFilterD3()
-
-
-
-double LowPassFilterAngle0(double input, double freq) {
-    double samplerate = (double)SAMPLING_FREQUENCY;  //サンプリング周波数
-    //double freq = 5;  //カットオフ周波数
-    double q = sqrtf(2.0) / 2.0;    //フィルタのQ値
-    double omega = 2.0f * 3.14159265f * freq/samplerate;
-    double alpha = sin(omega) / (2.0f * q);
- 
-    double a0 =  1.0f + alpha;
-    double a1 = -2.0f * cos(omega);
-    double a2 =  1.0f - alpha;
-    double b0 = (1.0f - cos(omega)) / 2.0f;
-    double b1 =  1.0f - cos(omega);
-    double b2 = (1.0f - cos(omega)) / 2.0f;
-
-    double output;
-    static double in1, in2, out1, out2; //0:x, 1:y, 2:z
-    static unsigned int cycle;
-    if(std::isnan(input)){
-        return input;
-    }
-    if(cycle < 2){
-        output = input;
-    }else{
-        output = b0/a0 * input + b1/a0 * in1  + b2/a0 * in2
-                                - a1/a0 * out1 - a2/a0 * out2;
-    }
-    in2  = in1;       // 2つ前の入力信号を更新
-    in1 = input;  // 1つ前の入力信号を更新
-
-    out2 = out1;      // 2つ前の出力信号を更新
-    out1 = output; // 1つ前の出力信号を更新
-    cycle++;
-    return output;
-}//LowPassFilterAngle0()
-
-
-
-double LowPassFilterAngle1(double input, double freq) {
-    double samplerate = (double)SAMPLING_FREQUENCY;  //サンプリング周波数
-    //double freq = 5;  //カットオフ周波数
-    double q = sqrtf(2.0) / 2.0;    //フィルタのQ値
-    double omega = 2.0f * 3.14159265f * freq/samplerate;
-    double alpha = sin(omega) / (2.0f * q);
- 
-    double a0 =  1.0f + alpha;
-    double a1 = -2.0f * cos(omega);
-    double a2 =  1.0f - alpha;
-    double b0 = (1.0f - cos(omega)) / 2.0f;
-    double b1 =  1.0f - cos(omega);
-    double b2 = (1.0f - cos(omega)) / 2.0f;
-
-    double output;
-    static double in1, in2, out1, out2; //0:x, 1:y, 2:z
-    static unsigned int cycle;
-    if(std::isnan(input)){
-        return input;
-    }
-    if(cycle < 2){
-        output = input;
-    }else{
-        output = b0/a0 * input + b1/a0 * in1  + b2/a0 * in2
-                                - a1/a0 * out1 - a2/a0 * out2;
-    }
-    in2  = in1;       // 2つ前の入力信号を更新
-    in1 = input;  // 1つ前の入力信号を更新
-
-    out2 = out1;      // 2つ前の出力信号を更新
-    out1 = output; // 1つ前の出力信号を更新
-    cycle++;
-    return output;
-}//LowPassFilterAngle1()
-
-double LowPassFilterAngle2(double input, double freq) {
-    double samplerate = (double)SAMPLING_FREQUENCY;  //サンプリング周波数
-    //double freq = 5;  //カットオフ周波数
-    double q = sqrtf(2.0) / 2.0;    //フィルタのQ値
-    double omega = 2.0f * 3.14159265f * freq/samplerate;
-    double alpha = sin(omega) / (2.0f * q);
- 
-    double a0 =  1.0f + alpha;
-    double a1 = -2.0f * cos(omega);
-    double a2 =  1.0f - alpha;
-    double b0 = (1.0f - cos(omega)) / 2.0f;
-    double b1 =  1.0f - cos(omega);
-    double b2 = (1.0f - cos(omega)) / 2.0f;
-
-    double output;
-    static double in1, in2, out1, out2; //0:x, 1:y, 2:z
-    static unsigned int cycle;
-    if(std::isnan(input)){
-        return input;
-    }
-    if(cycle < 2){
-        output = input;
-    }else{
-        output = b0/a0 * input + b1/a0 * in1  + b2/a0 * in2
-                                - a1/a0 * out1 - a2/a0 * out2;
-    }
-    in2  = in1;       // 2つ前の入力信号を更新
-    in1 = input;  // 1つ前の入力信号を更新
-
-    out2 = out1;      // 2つ前の出力信号を更新
-    out1 = output; // 1つ前の出力信号を更新
-
-    cycle++;
-    return output;
-}//LowPassFilterAngle2()
 
 char getch() {
     // ROS 2用のロガーを定義
@@ -987,6 +733,22 @@ char getch() {
 
 
 
+//差圧をPdfを返す関数。
+double convertPdf(double q , double torque){
+    //cは2020年9月に測定したもの。
+    //angleは[rad]
+    //double torque = 0.0;
+    //double torque_g = CompensateGravity();
+    double L = M_PI - link_angle;
+    double Pdf;
+    double A = 3*c[0]*q*pow(L,2.0) + c[0]*pow(q,3.0) + 2*c[1]*q*L + c[2]*q;
+    double B = c[0]*pow(L,3.0) + 3*c[0]*L*pow(q,2.0) + c[1]*pow(L,2.0) + c[1]*pow(q,2.0) + c[2]*L + c[3];
+
+    //torqueは[2]に傾く方向が正
+    Pdf = (torque - 2 * basePressure * A) / B ;
+
+    return Pdf;
+} //convertPdf()
 
 
 ArmControlNode::ArmControlNode() : Node("dof2_arm_LDPE"){
@@ -1029,8 +791,8 @@ ArmControlNode::ArmControlNode() : Node("dof2_arm_LDPE"){
     pressureKD[3] = this->declare_parameter<double>("pressure_Kd3", 0.0);
 
     // ビジュアルPIDパラメータ
-    visual_P = this->declare_parameter<double>("visual_P", 1.0);
-    visual_I = this->declare_parameter<double>("visual_I", 1.0);
+    visual_P = this->declare_parameter<double>("visual_P", 0.03); //aaaaa
+    visual_I = this->declare_parameter<double>("visual_I", 0.0);
     visual_D = this->declare_parameter<double>("visual_D", 0.0);
 
     basePressure = this->declare_parameter<double>("base_pressure", 30.0);
@@ -1080,14 +842,18 @@ void ArmControlNode::open_log_file(){
 
 
     ofs_ << "cycle" << ',' << "Time[s]" << ',';
-    
+
+    ofs_ << "q1 target[deg]" << ',' << "q1 current[deg]" << ',' 
+        << "q2 target[deg]" << ',' << "q2 current[deg]" << ',';
+
+    ofs_ << "P gain" << ',' << "I gain" << ',' << "D gain" << ',';
+
     ofs_ << "x3 target[m]" << ',' << "y3 target[m]" << ',' << "z3 target[m]" << ','
         << "x3[m]" << ',' << "y3[m]" << ',' << "z3[m]" << ','
         << "deviation_x3[m]" << ',' << "deviation_y3[m]" << ',' << "deviation_z3[m]" << ',';
     ofs_ << "x2[m]" << ',' << "y2[m]" << ',' << "z2[m]" << ',';
     
-    ofs_ << "q1 target[deg]" << ',' << "q1 current[deg]" << ',' 
-        << "q2 target[deg]" << ',' << "q2 current[deg]" << ',';
+
     for (int i = 0; i < DEGREE_OF_FREEDOM * 2; i++) { 
         ofs_ << "Target Pressure" << i << "[kPa]" << ',' 
              << "Output Pressure" << i << "[kPa]" << ',' 
@@ -1163,9 +929,10 @@ void ArmControlNode::control_loop_P(){
         setup_flag = true;
         VisualFeedback_flag = true;
         PressureFeedback_flag = true;
-        //orientation.target.q[0] = -30.0 / 180 * M_PI;
-        orientation.target.q[0] = 0 / 180 * M_PI;
-        orientation.target.q[1] = -30.0 / 180 * M_PI;
+        // 第1関節角(台座側)
+        orientation.target.q[0] = -30.0 / 180 * M_PI;//aaaaa
+        // 第2関節角(手先側)
+        orientation.target.q[1] = 30.0 / 180 * M_PI;
         //SetPositionTarget(target_x,target_y,target_z);
     }
 
@@ -1197,8 +964,9 @@ void ArmControlNode::control_loop_P(){
 
 
     if(VisualFeedback_flag){
-        orientation.current.q[0] = LowPassFilterAngle0(orientation.current.q[0], 5.0);
-        orientation.current.q[1] = LowPassFilterAngle1(orientation.current.q[1], 5.0);
+        orientation.current.q[0] = LowPassFilter_Angle0.Filter(orientation.current.q[0], 5.0); //aaaaa
+        orientation.current.q[1] = LowPassFilter_Angle1.Filter(orientation.current.q[1], 5.0);
+
         for (int i = 0; i < DEGREE_OF_FREEDOM; i++){
             double required_torque = VisualFeedbackControl(orientation.target.q[i], orientation.current.q[i], i);
             double pdf = convertPdf(orientation.target.q[i], required_torque);
@@ -1242,14 +1010,18 @@ void ArmControlNode::control_loop_P(){
 #ifdef FILE_OUTPUT
     if(setup_flag){
     ofs_ << cycle << ","<< timer.now_d.seconds() << ',';
-    
+ 
+    ofs_ << orientation.target.q[0] * 180 / M_PI << ',' << orientation.current.q[0] * 180 / M_PI << ','
+         << orientation.target.q[1] * 180 / M_PI << ',' << orientation.current.q[1] * 180 / M_PI << ',';    
+
+    ofs_ << visual_P << ',' << visual_I << ',' << visual_D << ',';
+
     ofs_ << pos.target.x[3] << ',' << pos.target.y[3] << ',' << pos.target.z[3] << ','
          << pos.current.x[3] << ',' << pos.current.y[3] << ',' << pos.current.z[3] << ','
          << pos.deviation.x[3] << ',' << pos.deviation.y[3] << ',' << pos.deviation.z[3] << ',';
     ofs_ << pos.current.x[2] << ',' << pos.current.y[2] << ',' << pos.current.z[2] << ',';
     
-    ofs_ << orientation.target.q[0] * 180 / M_PI << ',' << orientation.current.q[0] * 180 / M_PI << ','
-         << orientation.target.q[1] * 180 / M_PI << ',' << orientation.current.q[1] * 180 / M_PI << ',';
+
     
     for (int i = 0; i < DEGREE_OF_FREEDOM * 2; i++) {
         ofs_ << pressure.target[i] << ',' 
@@ -1275,19 +1047,85 @@ void ArmControlNode::control_loop_P(){
 }
 
 
-//差圧をPdfを返す関数。
-double convertPdf(double q , double torque){
-    //cは2020年9月に測定したもの。
-    //angleは[rad]
-    //double torque = 0.0;
-    //double torque_g = CompensateGravity();
-    double L = M_PI - link_angle;
-    double Pdf;
-    double A = 3*c[0]*q*pow(L,2.0) + c[0]*pow(q,3.0) + 2*c[1]*q*L + c[2]*q;
-    double B = c[0]*pow(L,3.0) + 3*c[0]*L*pow(q,2.0) + c[1]*pow(L,2.0) + c[1]*pow(q,2.0) + c[2]*L + c[3];
+//返り値：重力によるトルク
+void CompensateGravity()
+{
+    // ===== Joint angles =====
+    const float q1 = orientation.current.q[1];
+    const float q2 = orientation.current.q[2];
 
-    //torqueは[2]に傾く方向が正
-    Pdf = (torque - 2 * basePressure * A) / B ;
+    const float yaw = orientation.current.q[0];
 
-    return Pdf;
-} //convertPdf()
+    // ===== Trigonometric values =====
+    const float s1 = sinf(q1);
+    const float c1 = cosf(q1);
+
+    const float s12 = sinf(q1 + q2);
+    const float c12 = cosf(q1 + q2);
+
+    const float cy = cosf(yaw);
+    const float sy = sinf(yaw);
+
+    // ===== Total masses =====
+    float m1 = param.m_l[1] + param.m_a[1];
+    float m2 = param.m_l[2] + param.m_a[2];
+
+    // ===== Link center of gravity =====
+    float x_l1 = 0.5F * param.link[1] * s1 * cy;
+    float y_l1 = 0.5F * param.link[1] * s1 * sy;
+    float z_l1 = 0.5F * param.link[1] * c1;
+
+    float x_l2 = pos.current.x[1]
+               + 0.5F * param.link[2] * s12 * cy;
+
+    float y_l2 = pos.current.y[1]
+               + 0.5F * param.link[2] * s12 * sy;
+
+    float z_l2 = pos.current.z[1]
+               + 0.5F * param.link[2] * c12;
+
+    // ===== Combined center of gravity =====
+    float x_g1 = (param.m_l[1] * x_l1 + param.m_a[1] * pos.current.x[1]) / m1;
+    float y_g1 = (param.m_l[1] * y_l1 + param.m_a[1] * pos.current.y[1]) / m1;
+    float z_g1 = (param.m_l[1] * z_l1 + param.m_a[1] * pos.current.z[1]) / m1;
+
+    float x_g2 = (param.m_l[2] * x_l2 + param.m_a[2] * pos.current.x[2]) / m2;
+    float y_g2 = (param.m_l[2] * y_l2 + param.m_a[2] * pos.current.y[2]) / m2;
+    float z_g2 = (param.m_l[2] * z_l2 + param.m_a[2] * pos.current.z[2]) / m2;
+
+    // ===== Distance from joint to center of gravity =====
+    param.link_g[1] = GetDistance(
+        x_g1, y_g1, z_g1,
+        pos.current.x[1],
+        pos.current.y[1],
+        pos.current.z[1]);
+
+    param.link_g[2] = GetDistance(
+        x_g2, y_g2, z_g2,
+        pos.current.x[2],
+        pos.current.y[2],
+        pos.current.z[2]);
+
+    // ===== Gravity compensation torque =====
+
+    // Base joint
+    param.torque_g[0] = 0.0F;
+
+    // Joint 1
+    param.torque_g[1] =
+        -(m1 * GRAVITY_ACC * param.link_g[1]
+        + m2 * GRAVITY_ACC * param.link[1]) * s1
+        -(m2 * GRAVITY_ACC * param.link_g[2]) * s12;
+
+    // Joint 2
+    param.torque_g[2] =
+        -(m2 * GRAVITY_ACC * param.link_g[2]) * s12;
+}
+
+float GetDistance(float x1, float y1, float z1, float x2, float y2, float z2) {
+	float distance;
+	distance = pow((x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1) + (z2 - z1) * (z2 - z1), 0.5F);
+
+	return distance;
+}
+

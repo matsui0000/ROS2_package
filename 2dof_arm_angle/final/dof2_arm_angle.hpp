@@ -1,26 +1,25 @@
-#2自由度アームのヘッダファイル
+//2自由度関節角度制御のヘッダファイル
 
 #pragma once
+
 
 #include <stdio.h>
 #include <fstream>
 #include <cmath>
 #include <iomanip>
 #include <termios.h>
-#include <math.h>
-#include "rclcpp/rclcpp.hpp"
-#include <std_msgs/msg/float32.hpp>
-#include <geometry_msgs/msg/pose_stamped.hpp>
-#include <geometry_msgs/msg/transform_stamped.hpp>
-#include <geometry_msgs/msg/quaternion.hpp>
 #include <iostream>
-#include <cmath>
 #include <string>
 #include <vector>
 #include <chrono>
 #include <sstream>  
 #include <sys/stat.h> 
-#include "inflatable/DataStreamClient.h"
+
+#include "rclcpp/rclcpp.hpp"
+#include <geometry_msgs/msg/transform_stamped.hpp>
+#include <geometry_msgs/msg/quaternion.hpp>
+
+#include "inflatable/DataStream_and_contec/DataStreamClient.h"
 #include "inflatable/msg/voltage_output.hpp"
 #include "inflatable/msg/voltage_input.hpp"
 
@@ -154,6 +153,30 @@ public:
     ~Pressure();
 };
 
+
+
+
+class LowPassFilter {
+private:
+    // 過去の記憶（内部状態変数）
+    double in1_ = 0.0;
+    double in2_ = 0.0;
+    double out1_ = 0.0;
+    double out2_ = 0.0;
+    unsigned int cycle_ = 0;
+
+public:
+    // コンストラクタ
+    LowPassFilter() = default;
+
+    // フィルタ計算関数の「宣言」のみ
+    double Filter(double input, double freq);
+};
+
+
+
+
+
 //クラス定義
 extern Time timer;
 extern RobotPosition pos;
@@ -233,6 +256,7 @@ extern double orientation_buf;         //前ステップの角度
 extern double orientationYaw;          //台座部分の角度
 extern double AngleFB_I_threshold ; //目標角度と現在の角度が閾値以上ならI項を入れない
 extern double element[3];              //視覚フィードバック制御の各項の値
+extern double P_element[DEGREE_OF_FREEDOM];   //視覚フィードバック制御のP項の値（関節ごと）
 // double  c[5] = {-0.007298062, 0.06181, -0.181226594, 0.194224742, 0};   //圧力-トルク変換の特性係数
 extern double c[5];   //20250813更新
 
@@ -248,13 +272,6 @@ int CheckOverPressure_Output(void);
 int DAconversion();
 int ADconversion();
 void LowPassFilterMarkers();
-double LowPassFilterPressure1(double input, double freq);
-double LowPassFilterPressure2(double input, double freq);
-double LowPassFilterD1(double input, double freq);
-double LowPassFilterD2(double input, double freq);
-double LowPassFilterD3(double input, double freq);
-double LowPassFilterAngle1(double input, double freq);
-double LowPassFilterAngle2(double input, double freq);
 double FeedbackControl();
 void convert_R(const geometry_msgs::msg::TransformStamped& pose, double R[3][3]);
 void mul_R(double left[3][3],double right[3][3],double res[3][3]);
@@ -271,14 +288,14 @@ void PressureFeedbackControl();
 
 
 void PressureFeedbackReset();
-void target_inverse();
 double convertPdf(double q , double torque);
+void CompensateGravity();
+float GetDistance(float x1, float y1, float z1, float x2, float y2, float z2);
 
 
 
 
-extern geometry_msgs::msg::TransformStamped base_pose;
-extern bool msgCallback_base_flag;
+
 
 class ArmControlNode : public rclcpp::Node {
 public:
@@ -336,5 +353,17 @@ private:
     rclcpp::TimerBase::SharedPtr timer_;
     inflatable::msg::VoltageOutput pub_msg_;
     ViconDataStreamSDK::CPP::Client vicon_client_;
-};
 
+    LowPassFilter LowPassFilter_D1;
+    LowPassFilter LowPassFilter_D2;
+    LowPassFilter LowPassFilter_D3;
+    LowPassFilter LowPassFilter_Pressure1;
+    LowPassFilter LowPassFilter_Pressure2;
+    LowPassFilter LowPassFilter_Angle0;
+    LowPassFilter LowPassFilter_Angle1;
+    LowPassFilter LowPassFilter_Angle2;
+
+    geometry_msgs::msg::TransformStamped base_pose;
+    bool msgCallback_base_flag;
+
+};
