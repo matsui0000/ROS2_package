@@ -85,7 +85,20 @@ public:
     RobotPosition();
     ~RobotPosition();
 };
-    
+
+
+class Diviation : public Direction {
+public:
+    Direction P;             //Diviation
+    Direction I;             //Integral(diviation)dt
+    Direction D;             //d/dt(diviation)
+    Direction P_buf;         //Previous diviation
+    std::vector<float> pressure_integral;
+    Diviation();
+    ~Diviation();
+};
+
+
 class RobotParameter : public Direction {
 public:
     Direction force;                            //Force
@@ -212,9 +225,9 @@ extern ImpactState impactState[DEGREE_OF_FREEDOM];
 extern double pressureKP[DA_CHANNEL_NUMBER];
 extern double pressureKI[DA_CHANNEL_NUMBER];
 extern double pressureKD[DA_CHANNEL_NUMBER];
-extern double visual_P;
-extern double visual_I;
-extern double visual_D;
+extern double visual_P[DEGREE_OF_FREEDOM];
+extern double visual_I[DEGREE_OF_FREEDOM];
+extern double visual_D[DEGREE_OF_FREEDOM];
 extern double basePressure;
 extern double diffPressure;
 extern double linkPressure;
@@ -306,7 +319,7 @@ private:
     rclcpp::Subscription<inflatable::msg::VoltageInput>::SharedPtr ros_sub2_;
     rclcpp::Subscription<geometry_msgs::msg::TransformStamped>::SharedPtr ros_sub3_;
     rclcpp::Subscription<geometry_msgs::msg::TransformStamped>::SharedPtr ros_sub4_;
-    void msgCallback2(const inflatable::msg::VoltageInput::SharedPtr msg);
+    void msgCallback_voltage(const inflatable::msg::VoltageInput::SharedPtr msg);
     void msgCallback_hand(const geometry_msgs::msg::TransformStamped::SharedPtr msg);
     void msgCallback_base(const geometry_msgs::msg::TransformStamped::SharedPtr msg);
 
