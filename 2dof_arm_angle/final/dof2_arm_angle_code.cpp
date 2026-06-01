@@ -878,7 +878,8 @@ void ArmControlNode::open_log_file(){
     ofs_ << "P1 gain" << ',' << "P2 gain" << ',' << "I1 gain" << ','
          << "I2 gain" << ',' << "D1 gain" << ',' << "D2 gain" << ',';
 
-    ofs_ << "q0 P_element" << ',' << "q1 P_element" << ',';
+    ofs_ << "q0 P_torque" << ',' << "q0 I_torque" << ',' << "q0 D_torque" << ','
+         << "q1 P_torque" << ',' << "q1 I_torque" << ',' << "q1 D_torque" << ',';
 
 
     for (int i = 0; i < DEGREE_OF_FREEDOM * 2; i++) { 
@@ -1048,7 +1049,8 @@ void ArmControlNode::control_loop_P(){
 
     ofs_ << visual_P[0] << ',' << visual_P[1] << ',' << visual_I[0] << ',' << visual_I[1] << ',' << visual_D[0] << ',' << visual_D[1] << ',';
 
-    ofs_ << P_element[0] << ',' << P_element[1] << ',';
+    ofs_ << P_element[0] << ',' << I_element[0] << ',' << D_element[0] << ','
+         << P_element[1] << ',' << I_element[1] << ',' << D_element[1] << ',';
 
     
     for (int i = 0; i < DEGREE_OF_FREEDOM * 2; i++) {

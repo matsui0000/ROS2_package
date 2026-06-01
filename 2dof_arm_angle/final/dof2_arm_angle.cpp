@@ -49,8 +49,9 @@ double orientationTarget;
 double visual_P[DEGREE_OF_FREEDOM];
 double visual_I[DEGREE_OF_FREEDOM];
 double visual_D[DEGREE_OF_FREEDOM];
-double element[3]; 
 double P_element[DEGREE_OF_FREEDOM];
+double I_element[DEGREE_OF_FREEDOM];
+double D_element[DEGREE_OF_FREEDOM];
 
 double pressureCurrentFiltered[AD_CHANNEL_NUMBER];
 double pressureDeviation[DA_CHANNEL_NUMBER];

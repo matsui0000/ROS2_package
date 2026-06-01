@@ -268,8 +268,9 @@ extern double orientationCurrent3;     //5Hzローパスフィルタでの関節
 extern double orientation_buf;         //前ステップの角度
 extern double orientationYaw;          //台座部分の角度
 extern double AngleFB_I_threshold ; //目標角度と現在の角度が閾値以上ならI項を入れない
-extern double element[3];              //視覚フィードバック制御の各項の値
-extern double P_element[DEGREE_OF_FREEDOM];   //視覚フィードバック制御のP項の値（関節ごと）
+extern double P_element[DEGREE_OF_FREEDOM];   //P項で生み出された関節ごとのトルク
+extern double I_element[DEGREE_OF_FREEDOM];   //I項で生み出された関節ごとのトルク
+extern double D_element[DEGREE_OF_FREEDOM];   //D項で生み出された関節ごとのトルク
 // double  c[5] = {-0.007298062, 0.06181, -0.181226594, 0.194224742, 0};   //圧力-トルク変換の特性係数
 extern double c[5];   //20250813更新
 
