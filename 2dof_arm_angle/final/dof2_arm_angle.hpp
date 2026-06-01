@@ -271,6 +271,7 @@ extern double AngleFB_I_threshold ; //目標角度と現在の角度が閾値以
 extern double P_element[DEGREE_OF_FREEDOM];   //P項で生み出された関節ごとのトルク
 extern double I_element[DEGREE_OF_FREEDOM];   //I項で生み出された関節ごとのトルク
 extern double D_element[DEGREE_OF_FREEDOM];   //D項で生み出された関節ごとのトルク
+extern double joint_torque[DEGREE_OF_FREEDOM]; //関節トルク
 // double  c[5] = {-0.007298062, 0.06181, -0.181226594, 0.194224742, 0};   //圧力-トルク変換の特性係数
 extern double c[5];   //20250813更新
 

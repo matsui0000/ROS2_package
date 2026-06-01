@@ -466,7 +466,7 @@ double VisualFeedbackControl(double target_q, double current_q, int joint_num) {
             //D component
             //param.torque[joint_num] += visual_D[joint_num] * ((orientationTarget_buf[joint_num] - orientationCurrent_buf[joint_num]) - (orientationTarget[joint_num] - orientationCurrent[joint_num])) * SAMPLING_FREQUENCY;
             D_element[joint_num] = visual_D[joint_num] * ((orientationTarget_buf[joint_num] - orientationCurrent_buf[joint_num]) - (orientationTarget[joint_num] - orientationCurrent[joint_num])) * SAMPLING_FREQUENCY;
-
+            joint_torque[joint_num] = P_element[joint_num] + I_element[joint_num] + D_element[joint_num];
     }
     //次のI制御用
     orientationTarget_buf[joint_num] = orientationTarget[joint_num];
@@ -878,6 +878,8 @@ void ArmControlNode::open_log_file(){
     ofs_ << "P1 gain" << ',' << "P2 gain" << ',' << "I1 gain" << ','
          << "I2 gain" << ',' << "D1 gain" << ',' << "D2 gain" << ',';
 
+    ofs_ << "q0 torque" << ',' << "q1 torque" << ',';
+
     ofs_ << "q0 P_torque" << ',' << "q0 I_torque" << ',' << "q0 D_torque" << ','
          << "q1 P_torque" << ',' << "q1 I_torque" << ',' << "q1 D_torque" << ',';
 
@@ -1048,6 +1050,8 @@ void ArmControlNode::control_loop_P(){
          << orientation.target.q[1] * 180 / M_PI << ',' << orientation.current.q[1] * 180 / M_PI << ',';    
 
     ofs_ << visual_P[0] << ',' << visual_P[1] << ',' << visual_I[0] << ',' << visual_I[1] << ',' << visual_D[0] << ',' << visual_D[1] << ',';
+
+    ofs_ << joint_torque[0] << ',' << joint_torque[1] << ',';
 
     ofs_ << P_element[0] << ',' << I_element[0] << ',' << D_element[0] << ','
          << P_element[1] << ',' << I_element[1] << ',' << D_element[1] << ',';
