@@ -398,9 +398,9 @@ void ArmControlNode::msgCallback_hand(const geometry_msgs::msg::TransformStamped
 
     //ローパスフィルターに通す
     //関数ごとに前ステップの入力が残っているので関数が分けてある
-    orientationCurrent = LowPassFilter_D1.Filter(orientationCurrent_raw, 15.0);
-    orientationCurrent2 = LowPassFilter_D2.Filter(orientationCurrent_raw, 10.0);
-    orientationCurrent3 = LowPassFilter_D3.Filter(orientationCurrent_raw, 5.0);
+    //orientationCurrent1 = LowPassFilter_D1.Filter(orientationCurrent_raw, 15.0);
+    //orientationCurrent2 = LowPassFilter_D2.Filter(orientationCurrent_raw, 10.0);
+    //orientationCurrent3 = LowPassFilter_D3.Filter(orientationCurrent_raw, 5.0);
 
     q_dot = (orientationCurrent_raw - orientation_buf) * SAMPLING_FREQUENCY;
 } //msgCallback_hand()
@@ -447,7 +447,7 @@ double VisualFeedbackControl(double target_q, double current_q, int joint_num) {
         //目標値との差が閾値以下ならI項を入れる
         if(abs(target_q - current_q) < AngleFB_I_threshold){
             orientationIntegral[joint_num] += ((orientationTarget_buf[joint_num] - orientationCurrent_buf[joint_num])
-                                    + (orientationTarget[joint_num] - orientationCurrent[joint_num]))
+                                    + (orientation.target.q[joint_num] - orientation.current.q[joint_num]))
                                     / (2.0F * SAMPLING_FREQUENCY);
         }
     }
@@ -464,13 +464,13 @@ double VisualFeedbackControl(double target_q, double current_q, int joint_num) {
             I_element[joint_num] = visual_I[joint_num] * orientationIntegral[joint_num];
 
             //D component
-            //param.torque[joint_num] += visual_D[joint_num] * ((orientationTarget_buf[joint_num] - orientationCurrent_buf[joint_num]) - (orientationTarget[joint_num] - orientationCurrent[joint_num])) * SAMPLING_FREQUENCY;
-            D_element[joint_num] = visual_D[joint_num] * ((orientationTarget_buf[joint_num] - orientationCurrent_buf[joint_num]) - (orientationTarget[joint_num] - orientationCurrent[joint_num])) * SAMPLING_FREQUENCY;
+            //param.torque[joint_num] += visual_D[joint_num] * ((orientationTarget_buf[joint_num] - orientationCurrent_buf[joint_num]) - (orientation.target.q[joint_num] - orientation.current.q[joint_num])) * SAMPLING_FREQUENCY;
+            D_element[joint_num] = visual_D[joint_num] * ((orientationTarget_buf[joint_num] - orientationCurrent_buf[joint_num]) - (orientation.target.q[joint_num] - orientation.current.q[joint_num])) * SAMPLING_FREQUENCY;
             joint_torque[joint_num] = P_element[joint_num] + I_element[joint_num] + D_element[joint_num];
     }
     //次のI制御用
-    orientationTarget_buf[joint_num] = orientationTarget[joint_num];
-    orientationCurrent_buf[joint_num] = orientationCurrent[joint_num];
+    orientationTarget_buf[joint_num] = orientation.target.q[joint_num];
+    orientationCurrent_buf[joint_num] = orientation.current.q[joint_num];
 
     FB_cycle[joint_num]++;
 
@@ -830,7 +830,7 @@ ArmControlNode::ArmControlNode() : Node("dof2_arm_LDPE"){
     
     // すべて先頭に 「/inflatable/」 を付加し、絶対パス（スラッシュ始まり）にする
     ros_pub_ = this->create_publisher<inflatable::msg::VoltageOutput>("/inflatable/voltage_output", 10);
-    ros_sub2_ = this->create_subscription<inflatable::msg::VoltageInput>("/inflatable/voltage_input", 10, std::bind(&ArmControlNode::msgCallback2, this, std::placeholders::_1));
+    ros_sub2_ = this->create_subscription<inflatable::msg::VoltageInput>("/inflatable/voltage_input", 10, std::bind(&ArmControlNode::msgCallback_voltage, this, std::placeholders::_1));
     ros_sub3_ = this->create_subscription<geometry_msgs::msg::TransformStamped>("/inflatable/vicon/LDPE_hand/Hand", 10, std::bind(&ArmControlNode::msgCallback_hand, this, std::placeholders::_1));
     ros_sub4_ = this->create_subscription<geometry_msgs::msg::TransformStamped>("/inflatable/vicon/LDPE_base/base2", 10, std::bind(&ArmControlNode::msgCallback_base, this, std::placeholders::_1));
 
