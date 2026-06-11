@@ -280,6 +280,8 @@ extern float positionArm[5][3];                                //アームにつ
 extern float positionOrigin[3];                                //原点の座標（ベースの中心）
 extern float positionTarget[3];                             //目標位置の座標
 extern float IK_degree_q[DEGREE_OF_FREEDOM]; //逆運動学で求めた関節角度
+extern float view_threshold; //視覚フィードバック制御を行うかの閾値(ファイル表示用)
+extern float view_distance_error; //目標位置と現在位置の距離の誤差(ファイル表示用)
 
 
 //関数の宣言
@@ -296,10 +298,10 @@ void Trans_R(double R[3][3],double res[3][3]);
 void print_matrix(double matrix[3][3]);
 void print_quartanion(const geometry_msgs::msg::TransformStamped& pose);
 double VisualFeedbackControl_angle(double target_q, double current_q, int joint_num);
-double VisualFeedbackControl_position();
+void VisualFeedbackControl_position();
 void SetPositionTarget(float x, float y, float z);
 void ForwardKinematics(float q1, float q2);
-void InverseKinematics(float x, float y);
+//void InverseKinematics(float x, float y);
 void DetermineImpactDirection();
 void DetermineImpactDirection2();
 void ImpactDrivenControl(ImpactState& state, int pressure_idx_pos, int pressure_idx_neg);
@@ -385,5 +387,5 @@ private:
 
     geometry_msgs::msg::TransformStamped base_pose;
     bool msgCallback_base_flag;
-
+    float target_x, target_y, target_z; //目標位置の座標
 };

@@ -1,11 +1,24 @@
 //関節角度は直線となる姿勢を0度とする．
 //0~3のアクチュエータを使用．0,2が膨らむと関節角度が小さくなる方のアクチュエータ．
+//1,2が膨らむと関節角度が小さくなる方のアクチュエータとした(20260603)
+//右上から時計回りに2,0,3,1とした(20260603)
+//0,1が台座側のアクチュエータ, 2,3が手先側のアクチュエータ．
 //q[0]は台座側の関節角度, q[1]は手先側の関節角度．
 //q1は台座側の関節角度, q2は手先側の関節角度．
-
-#include "inflatable/program_header/dof2_arm_angle.hpp"
+/********************************************************************************************
+Abstract:   ・LDPE2自由度アームの角度制御の実装
+           ・キーのそれぞれの対応
+            ・r : 全圧力値を0にする。
+            ・l : リンクを膨らませる。
+            ・s : 初期状態。 
+            ・b : 目標角度まで移動。
+           ・動かすときは、l,s,b,rの順。
+           ・角度は鉛直方向を0度とする．
+           ・csvに記録するときはl,s,bの順で押し、一定時間経過後にrを押す。
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++*/
+#include "inflatable/program_header/2dof_arm_angle.hpp"
 #include "inflatable/DataStream_and_contec/DataStreamClient.h"
-
+//#define FILE_OUTPUT //ファイル出力するならコメントアウト外す
 
 Time::Time():
   now_d(0, 0), //add
@@ -227,7 +240,7 @@ void ArmControlNode::viconUpdateLoop(){
             float vy = output.Translation[1] / 1000.0F;
             float vz = output.Translation[2] / 1000.0F;
 
-            if(marker_name == "base21"){
+            if(marker_name == "base21"){ //aaaaa
                 positionMarker[0][0] = vx - 0.063F; positionMarker[0][1] = vy; positionMarker[0][2] = vz;
             }
             if(marker_name == "base22"){
@@ -437,7 +450,7 @@ void ForwardKinematics(float q1, float q2) {
 
 //返り値：視覚フィードバックによるトルク
 
-double VisualFeedbackControl(double target_q, double current_q, int joint_num) {//aaaaa
+double VisualFeedbackControl(double target_q, double current_q, int joint_num) {
     static unsigned int FB_cycle[2] = {0, 0}; //フィードバック制御のサイクル数を数えるための変数
     static double orientationIntegral[2] = {0.0F, 0.0F}; //I項の積分値を保存するための変数
     static double orientationTarget_buf[2] = {0.0F, 0.0F}; //前フレームの目標関節角度を保存するための変数
@@ -817,8 +830,8 @@ ArmControlNode::ArmControlNode() : Node("dof2_arm_LDPE"){
     pressureKD[3] = this->declare_parameter<double>("pressure_Kd3", 0.0);
 
     // ビジュアルPIDパラメータ
-    visual_P[0] = this->declare_parameter<double>("visual_P0", 0.03); //aaaaa
-    visual_P[1] = this->declare_parameter<double>("visual_P1", 0.03); //aaaaa
+    visual_P[0] = this->declare_parameter<double>("visual_P0", 0.03); 
+    visual_P[1] = this->declare_parameter<double>("visual_P1", 0.03);
     visual_I[0] = this->declare_parameter<double>("visual_I0", 0.0);
     visual_I[1] = this->declare_parameter<double>("visual_I1", 0.0);
     visual_D[0] = this->declare_parameter<double>("visual_D0", 0.0);
@@ -861,7 +874,7 @@ void ArmControlNode::open_log_file(){
     char filename[100];
     time_t date_info = time(NULL);
     struct tm *pnow = localtime(&date_info);
-    sprintf(filename, "/home/takahara/ros2_ws/data/dof2_arm_angle/%02d%02d_%02d%02d_%02d.csv", 
+    sprintf(filename, "/home/takahara/ros2_ws/data/2dof_arm_angle/%02d%02d_%02d%02d_%02d.csv", 
         pnow->tm_mon + 1, 
         pnow->tm_mday, 
         pnow->tm_hour, 
@@ -965,7 +978,7 @@ void ArmControlNode::control_loop_P(){
         VisualFeedback_flag = true;
         PressureFeedback_flag = true;
         // 第1関節角(台座側)
-        orientation.target.q[0] = -30.0 / 180 * M_PI;//aaaaa
+        orientation.target.q[0] = 30.0 / 180 * M_PI;//aaaaa
         // 第2関節角(手先側)
         orientation.target.q[1] = 30.0 / 180 * M_PI;
         //SetPositionTarget(target_x,target_y,target_z);
@@ -994,22 +1007,25 @@ void ArmControlNode::control_loop_P(){
         timer.buf = timer.now_t;
         now_time = timer.now_d.seconds();
         //時間などを表示
-        printf("now_time = %lf\n", now_time);
+        //printf("now_time = %lf\n", now_time);
     }
 
 
     if(VisualFeedback_flag){
-        orientation.current.q[0] = LowPassFilter_Angle0.Filter(orientation.current.q[0], 5.0); //aaaaa
+        orientation.current.q[0] = LowPassFilter_Angle0.Filter(orientation.current.q[0], 5.0);
         orientation.current.q[1] = LowPassFilter_Angle1.Filter(orientation.current.q[1], 5.0);
 
         for (int i = 0; i < DEGREE_OF_FREEDOM; i++){
             double required_torque = VisualFeedbackControl(orientation.target.q[i], orientation.current.q[i], i);
             double pdf = convertPdf(orientation.target.q[i], required_torque);
-            if (i == 0) {
+            if (i == 0) {//aaaaa
                 // 台座側の関節を正の方向（角度が大きくなる方向）に動かすには、ch1を膨らませ、ch0を縮める
                 // 正の方向（角度が大きくなる方向）に動かすには ch1 を膨らませ、ch0 を縮める
-                pressure.target[0] = basePressure - pdf / 2.0F; // ch0: 膨らむと小さくなる
-                pressure.target[1] = basePressure + pdf / 2.0F; // ch1: 膨らむと大きくなる
+                //pressure.target[0] = basePressure - pdf / 2.0F; // ch0: 膨らむと小さくなる
+                //pressure.target[1] = basePressure + pdf / 2.0F; // ch1: 膨らむと大きくなる
+                pressure.target[0] = basePressure - pdf / 2.0F; // ch1: 膨らむと小さくなる
+                pressure.target[1] = basePressure + pdf / 2.0F; // ch0: 膨らむと大きくなる
+                
             } 
             else if (i == 1) {
                 // 手先側の関節を正の方向（角度が大きくなる方向）に動かすには、ch3を膨らませ、ch2を縮める

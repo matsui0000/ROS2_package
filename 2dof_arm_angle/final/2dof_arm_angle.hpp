@@ -44,7 +44,7 @@
 
 #define DEGREE_OF_FREEDOM 2     //ロボットアームの自由度
 
-#define FILE_OUTPUT //ファイル出力するならコメントアウト外す
+
 #define GRAPPING_WEIGHT 0.0  //手先に吊り下げる荷重[kg]
 
 

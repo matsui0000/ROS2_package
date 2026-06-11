@@ -1,5 +1,5 @@
 /****************************************************
-Name:       dof2_arm_position.cpp
+Name:       2dof_arm_position.cpp
 Abstract:   ・LDPE2自由度アームの位置制御の実装
            ・キーのそれぞれの対応
             ・r : 全圧力値を0にする。
@@ -15,7 +15,7 @@ update:     2026/06/05 ファイル作成
 *****************************************************/
 
 
-#include "inflatable/program_header/dof2_arm_position.hpp"
+#include "inflatable/program_header/2dof_arm_position.hpp"
 
 double link_angle_deg = 25; //リンクの膨張角度[deg]
 double link_angle = link_angle_deg * M_PI / 180;  //リンクの膨張角度[rad]
@@ -68,6 +68,8 @@ double basePressure;
 double diffPressure;
 double linkPressure;
 double targetJointStiffness;
+float view_threshold;
+float view_distance_error;
 
 bool msgCallback_base_flag;
 geometry_msgs::msg::TransformStamped base_pose;

@@ -1,5 +1,5 @@
 /****************************************************
-Name:       dof2_arm_angle.cpp
+Name:       2dof_arm_angle.cpp
 Abstract:   ・LDPE2自由度アームの角度制御の実装
            ・キーのそれぞれの対応
             ・r : 全圧力値を0にする。
@@ -14,7 +14,7 @@ update:     2026/05/25 ファイル作成
 *****************************************************/
 
 
-#include "inflatable/program_header/dof2_arm_angle.hpp"
+#include "inflatable/program_header/2dof_arm_angle.hpp"
 
 double link_angle_deg = 25; //リンクの膨張角度[deg]
 double link_angle = link_angle_deg * M_PI / 180;  //リンクの膨張角度[rad]

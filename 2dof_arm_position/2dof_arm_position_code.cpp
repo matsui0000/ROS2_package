@@ -5,8 +5,17 @@
 //0,1が台座側のアクチュエータ, 2,3が手先側のアクチュエータ．
 //q[0]は台座側の関節角度, q[1]は手先側の関節角度．
 //q1は台座側の関節角度, q2は手先側の関節角度．
-
-#include "inflatable/program_header/dof2_arm_angle.hpp"
+/*
+           ・キーのそれぞれの対応
+            ・r : 全圧力値を0にする。
+            ・l : リンクを膨らませる。
+            ・s : 初期状態。 
+            ・b : 目標角度まで移動。
+            ・p : 目標位置まで移動。
+           ・動かすときは、l,s,p,rの順。bはデバッグ用。
+           ・角度は鉛直方向を0度とする．
+*/
+#include "inflatable/program_header/2dof_arm_position.hpp"
 #include "inflatable/DataStream_and_contec/DataStreamClient.h"
 
 
@@ -327,15 +336,15 @@ void ArmControlNode::viconUpdateLoop(){
 
     // SetPositionTarget(positionTarget[0], positionTarget[1], positionTarget[2]);
 
-    //printf("現在の原点の位置 (%lf, %lf, %lf)\n", positionOrigin[0], positionOrigin[1], positionOrigin[2]);
-    //for(int i = 2; i < DEGREE_OF_FREEDOM * 2; i++) {
-    //    printf("現在のq%dの位置 (%lf, %lf, %lf)\n", i - 1, pos.current.x[i], pos.current.y[i], pos.current.z[i]);
-    //}
+    printf("現在の原点の位置 (%lf, %lf, %lf)\n", positionOrigin[0], positionOrigin[1], positionOrigin[2]);
+    for(int i = 2; i < DEGREE_OF_FREEDOM * 2; i++) {
+        printf("現在のq%dの位置 (%lf, %lf, %lf)\n", i - 1, pos.current.x[i], pos.current.y[i], pos.current.z[i]);
+    }
     for(int i = 0; i < DEGREE_OF_FREEDOM; i++) {
         printf("現在のq%dの関節角[deg]  %lf\n", i + 1, orientation.current.q[i]*180.0F/M_PI);
     }
-    //printf("目標手先位置 (x=%lf, y=%lf, z=%lf)\n", pos.target.x[3], pos.target.y[3], pos.target.z[3]);
-    //printf("現在手先位置 (x=%lf, y=%lf, z=%lf)\n", x3, y3, z3);
+    printf("目標手先位置 (x=%lf, y=%lf, z=%lf)\n", pos.target.x[3], pos.target.y[3], pos.target.z[3]);
+    printf("現在手先位置 (x=%lf, y=%lf, z=%lf)\n", x3, y3, z3);
 
 }
 
@@ -438,6 +447,7 @@ void ForwardKinematics(float q1, float q2) {
     pos.buf.z[3] = 0.0f;
 }
 
+/*
 //逆運動学で求めた関節角度を格納する関数
 void InverseKinematics(float x, float y){
     float l1 = param.link[0];
@@ -451,7 +461,7 @@ void InverseKinematics(float x, float y){
     IK_degree_q[0] = target_q0;
     IK_degree_q[1] = target_q1;
 }
-
+*/
 
 
 //視覚フィードバック制御(角度制御)
@@ -506,15 +516,24 @@ void VisualFeedbackControl_position() {
     float det_J;  //ヤコビアンの行列式
     float delta_Q[2]; //関節角度の偏差
 
-    float q0 = orientation.target.q[0];
-    float q1 = orientation.target.q[1];
+    float q0 = orientation.current.q[0];
+    float q1 = orientation.current.q[1];
 
     pos.deviation.x[3] = pos.target.x[3] - pos.current.x[3]; //x座標の偏差
     pos.deviation.y[3] = pos.target.y[3] - pos.current.y[3]; //y座標の偏差
     pos.deviation.z[3] = 0.0F;
 
-    delta_P[0] = visual_P[0] * pos.deviation.x[3];
-    delta_P[1] = visual_P[0] * pos.deviation.y[3];
+    float distance_error = sqrtf(pos.deviation.x[3] * pos.deviation.x[3] + pos.deviation.y[3] * pos.deviation.y[3]);
+    float threshold = 0.005F; //aaaaa
+    view_threshold = threshold;
+    view_distance_error = distance_error;
+    if (distance_error < threshold) {
+        // しきい値以下なら、これ以上目標角度（target.q）を更新せずに終了する
+        return; 
+    }
+
+    delta_P[0] = 0.001 * pos.deviation.x[3];
+    delta_P[1] = 0.001 * pos.deviation.y[3];
 
     param.J[0][0] = -l2 * sinf(q0) - l3 * sinf(q0 + q1);
     param.J[0][1] = -l3 * sinf(q0 + q1);
@@ -923,7 +942,7 @@ void ArmControlNode::open_log_file(){
     char filename[100];
     time_t date_info = time(NULL);
     struct tm *pnow = localtime(&date_info);
-    sprintf(filename, "/home/takahara/ros2_ws/data/dof2_arm_angle/%02d%02d_%02d%02d_%02d.csv", 
+    sprintf(filename, "/home/takahara/ros2_ws/data/2dof_arm_position/%02d%02d_%02d%02d_%02d.csv", 
         pnow->tm_mon + 1, 
         pnow->tm_mday, 
         pnow->tm_hour, 
@@ -933,6 +952,8 @@ void ArmControlNode::open_log_file(){
 
 
     ofs_ << "cycle" << ',' << "Time[s]" << ',';
+
+    ofs_ << "threshold[m]" << ',' << "distance_error[m]" << ',';
 
     ofs_ << "x3 target[m]" << ',' << "y3 target[m]" << ',' << "z3 target[m]" << ','
          << "x3[m]" << ',' << "y3[m]" << ',' << "z3[m]" << ','
@@ -990,7 +1011,7 @@ void ArmControlNode::control_loop_P(){
     // 各種キー入力
     //全圧力値0
     if (key == 'r') {
-        setup_flag  = false;
+        setup_flag  = false;043503
         PressureFeedback_flag = false;
         VisualFeedback_position_flag = false;
         VisualFeedback_angle_flag = false;
@@ -1034,8 +1055,7 @@ void ArmControlNode::control_loop_P(){
         // 第1関節角(台座側)
         orientation.target.q[0] = -30.0 / 180 * M_PI;//aaaaa
         // 第2関節角(手先側)
-        orientation.target.q[1] = -30.0 / 180 * M_PI;
-        
+        orientation.target.q[1] = -10.0 / 180 * M_PI;
     }
 
     //目標位置まで移動
@@ -1047,8 +1067,13 @@ void ArmControlNode::control_loop_P(){
         PressureFeedback_flag = true;
         orientation.target.q[0] = orientation.current.q[0];
         orientation.target.q[1] = orientation.current.q[1];
-        SetPositionTarget(target_x,target_y,target_z);
-
+        target_x = 0.449352; //aaaaa
+        target_y = 0.114858;
+        target_z = 0.0;
+        float a = 0.45;
+        float b = 0.06;
+        SetPositionTarget(positionOrigin[0] + target_x, positionOrigin[1] + target_y, positionOrigin[2] + target_z);
+        //SetPositionTarget(a, b, target_z);
     }
 
 
@@ -1077,7 +1102,7 @@ void ArmControlNode::control_loop_P(){
         printf("now_time = %lf\n", now_time);
     }
 
-    if(VisualFeedback_position_flag){ //aaaaa
+    if(VisualFeedback_position_flag){ 
         VisualFeedbackControl_position();
     }
 
@@ -1095,13 +1120,13 @@ void ArmControlNode::control_loop_P(){
                 //pressure.target[0] = basePressure - pdf / 2.0F; // ch0: 膨らむと小さくなる
                 //pressure.target[1] = basePressure + pdf / 2.0F; // ch1: 膨らむと大きくなる
                 pressure.target[0] = basePressure - pdf / 2.0F; // ch1: 膨らむと小さくなる
-                pressure.target[2] = basePressure + pdf / 2.0F; // ch0: 膨らむと大きくなる
+                pressure.target[1] = basePressure + pdf / 2.0F; // ch0: 膨らむと大きくなる
                 
             } 
             else if (i == 1) {
                 // 手先側の関節を正の方向（角度が大きくなる方向）に動かすには、ch3を膨らませ、ch2を縮める
                 // 同様に、正の方向に動かすには ch3 を膨らませ、ch2 を縮める
-                pressure.target[1] = basePressure - pdf / 2.0F; // ch2: 膨らむと小さくなる
+                pressure.target[2] = basePressure - pdf / 2.0F; // ch2: 膨らむと小さくなる
                 pressure.target[3] = basePressure + pdf / 2.0F; // ch3: 膨らむと大きくなる
             }
         }
@@ -1134,6 +1159,8 @@ void ArmControlNode::control_loop_P(){
 #ifdef FILE_OUTPUT
     if(setup_flag){
     ofs_ << cycle << ","<< timer.now_d.seconds() << ',';
+
+    ofs_ << view_threshold << ',' << view_distance_error << ',';
 
     ofs_ << pos.target.x[3] << ',' << pos.target.y[3] << ',' << pos.target.z[3] << ','
          << pos.current.x[3] << ',' << pos.current.y[3] << ',' << pos.current.z[3] << ','
