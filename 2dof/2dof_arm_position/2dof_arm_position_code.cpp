@@ -913,7 +913,7 @@ ArmControlNode::ArmControlNode() : Node("dof2_arm_LDPE"){
     ros_pub_ = this->create_publisher<inflatable::msg::VoltageOutput>("/inflatable/voltage_output", 10);
     ros_sub2_ = this->create_subscription<inflatable::msg::VoltageInput>("/inflatable/voltage_input", 10, std::bind(&ArmControlNode::msgCallback_voltage, this, std::placeholders::_1));
     ros_sub3_ = this->create_subscription<geometry_msgs::msg::TransformStamped>("/inflatable/vicon/LDPE_hand/Hand", 10, std::bind(&ArmControlNode::msgCallback_hand, this, std::placeholders::_1));
-    ros_sub4_ = this->create_subscription<geometry_msgs::msg::TransformStamped>("/inflatable/vicon/LDPE_base/base2", 10, std::bind(&ArmControlNode::msgCallback_base, this, std::placeholders::_1));
+    ros_sub4_ = this->create_subscription<geometry_msgs::msg::TransformStamped>("/inflatable/vicon/LDPE_base_v2/Base", 10, std::bind(&ArmControlNode::msgCallback_base, this, std::placeholders::_1));
 
 
 
@@ -1011,7 +1011,7 @@ void ArmControlNode::control_loop_P(){
     // 各種キー入力
     //全圧力値0
     if (key == 'r') {
-        setup_flag  = false;043503
+        setup_flag  = false;
         PressureFeedback_flag = false;
         VisualFeedback_position_flag = false;
         VisualFeedback_angle_flag = false;

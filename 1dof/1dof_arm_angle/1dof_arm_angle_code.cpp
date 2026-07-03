@@ -1,12 +1,9 @@
 //関節角度は直線となる姿勢を0度とする．
-//0~3のアクチュエータを使用．0,2が膨らむと関節角度が小さくなる方のアクチュエータ．
-//1,2が膨らむと関節角度が小さくなる方のアクチュエータとした(20260603)
-//右上から時計回りに2,0,3,1とした(20260603)
-//0,1が台座側のアクチュエータ, 2,3が手先側のアクチュエータ．
-//q[0]は台座側の関節角度, q[1]は手先側の関節角度．
-//q1は台座側の関節角度, q2は手先側の関節角度．
+//0,1のアクチュエータを使用．0が膨らむと関節角度が小さくなる方のアクチュエータ．
+//q[0]
+//q1
 /********************************************************************************************
-Abstract:   ・LDPE2自由度アームの角度制御の実装
+Abstract:   ・LDPE1自由度アームの角度制御の実装
            ・キーのそれぞれの対応
             ・r : 全圧力値を0にする。
             ・l : リンクを膨らませる。
@@ -16,9 +13,9 @@ Abstract:   ・LDPE2自由度アームの角度制御の実装
            ・角度は鉛直方向を0度とする．
            ・csvに記録するときはl,s,bの順で押し、一定時間経過後にrを押す。
 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++*/
-#include "inflatable/program_header/2dof_arm_angle.hpp"
+#include "inflatable/program_header/1dof_arm_angle.hpp"
 #include "inflatable/DataStream_and_contec/DataStreamClient.h"
-//#define FILE_OUTPUT //ファイル出力するならコメントアウト外す
+#define FILE_OUTPUT //ファイル出力するならコメントアウト外す
 
 Time::Time():
   now_d(0, 0), //add
@@ -84,9 +81,10 @@ RobotParameter::RobotParameter():
     torque_g_rate(0.5F),  //重力補償トルクのゲイン
     //link{ 0.22F, 0.130F, 0.155F},
     //link{ 0.215F, 0.160F, 0.160F, 0.140F},
-    link{0.210F, 0.160F, 0.160F},   //各リンクの長さ[m] 第一リンクは台座ボルトから関節までの長さ
+    link{}, //1自由度のリンクの長さ
+    //link{0.210F, 0.160F, 0.160F},   //各リンクの長さ[m] 第一リンクは台座ボルトから関節までの長さ
     //link_g{0.0F, 0.0F, 0.0F, 0.0F},
-    link_g{0.0F, 0.0F} //各リンクの重心位置[m] 第一リンクは台座ボルトから重心までの長さ
+    link_g{0.0F} //各リンクの重心位置[m] 第一リンクは台座ボルトから重心までの長さ
     // link_angle{80.0F * M_PI / 180.0F , 35.0F * M_PI / 180.0F , 35.0F * M_PI / 180.0F , 35.0F * M_PI / 180.0F },
     // m_l{0.015F, 0.055F,0.055F, 0.055F+0.005F*5/*+0.20*/},
     // m_a{0.010F, 0.028F, 0.028, 0.028F+GRAPPING_WEIGHT},
@@ -144,8 +142,8 @@ RobotOrientation::~RobotOrientation() {
 Pressure::Pressure():
 base {  BASE_PRESSURE,  //0
         BASE_PRESSURE,  //1
-        BASE_PRESSURE - 10.0F,  //2
-        BASE_PRESSURE + 10.0F,  //3
+        BASE_PRESSURE,  //2
+        BASE_PRESSURE,  //3
         0.0F,           //4
         0.0F,           //5
         0.0F,           //6
@@ -240,10 +238,10 @@ void ArmControlNode::viconUpdateLoop(){
             float vy = output.Translation[1] / 1000.0F;
             float vz = output.Translation[2] / 1000.0F;
 
-            if(marker_name == "base21"){ //aaaaa
+            if(marker_name == "Base1"){
                 positionMarker[0][0] = vx - 0.063F; positionMarker[0][1] = vy; positionMarker[0][2] = vz;
             }
-            if(marker_name == "base22"){
+            if(marker_name == "Base2"){
                 positionMarker[1][0] = vx - 0.063F; positionMarker[1][1] = vy; positionMarker[1][2] = vz;
             }
             if(marker_name == "Hand3"){
@@ -359,7 +357,7 @@ void ArmControlNode::msgCallback_voltage(const inflatable::msg::VoltageInput::Sh
 
 //アームのサブジェクト
 void ArmControlNode::msgCallback_hand(const geometry_msgs::msg::TransformStamped::SharedPtr hand_pose){
-    double x,y,z,w;
+    
     double theta; //求めたい手先角度
 
     double handR[3][3]; //世界座標からhand座標系への回転行列
@@ -404,10 +402,12 @@ void ArmControlNode::msgCallback_hand(const geometry_msgs::msg::TransformStamped
     // 手先角度 (鉛直方向を0度として左右に±180度ずつ)
     theta = atan2(dot, sign); // atan2(y, x)
 
+
     // printf("sign = %lf [rad]\n", sign);
     // printf("dot = %lf [rad]\n", dot);
 
-    orientationCurrent_raw = theta; // -π ~ π [rad]
+    orientationCurrent_raw = -theta; // -π ~ π [rad] 
+    orientation.current.q[0] = orientationCurrent_raw; //現在の関節角度を更新
 
     //ローパスフィルターに通す
     //関数ごとに前ステップの入力が残っているので関数が分けてある
@@ -473,7 +473,7 @@ double VisualFeedbackControl(double target_q, double current_q, int joint_num) {
             P_element[joint_num] = visual_P[joint_num] * (target_q - current_q);
 
             //I component
-            //param.torque[joint_num] += visual_I[joint_num] * orientationIntegral[joint_num];
+            param.torque[joint_num] += visual_I[joint_num] * orientationIntegral[joint_num];
             I_element[joint_num] = visual_I[joint_num] * orientationIntegral[joint_num];
 
             //D component
@@ -482,15 +482,70 @@ double VisualFeedbackControl(double target_q, double current_q, int joint_num) {
             joint_torque[joint_num] = P_element[joint_num] + I_element[joint_num] + D_element[joint_num];
     }
     //次のI制御用
-    orientationTarget_buf[joint_num] = orientation.target.q[joint_num];
-    orientationCurrent_buf[joint_num] = orientation.current.q[joint_num];
+    orientationTarget_buf[joint_num] = target_q;
+    orientationCurrent_buf[joint_num] = current_q;
 
     FB_cycle[joint_num]++;
 
     return param.torque[joint_num];
 } //VisualFeedbackControl() 
 
+void PressureFeedbackControl() {
+    static unsigned int FB_cycle = 0;
+    static double pressureTarget_buf[AD_CHANNEL_NUMBER];
+    static double pressureCurrent_buf[AD_CHANNEL_NUMBER];
+    static double pressureIntegral[AD_CHANNEL_NUMBER];
+    static bool is_first = true;
 
+    // ★ 1. 使うチャンネル（0と2）の現在値を安全にコピー
+    pressureCurrentFiltered[0] = pressure.current[0];
+    pressureCurrentFiltered[2] = pressure.current[2];
+
+    // 変数初期化
+    if(is_first){
+        for(int i = 0; i < AD_CHANNEL_NUMBER ; i++){
+            pressureTarget_buf[i] = 0.0;
+            pressureCurrent_buf[i] = 0.0;
+            pressureIntegral[i] = 0.0;
+        }
+        is_first = false;
+    }
+
+    // ★ 2. ループのインデックス配列を作り、0番と2番だけを確実に処理する
+    int active_channels[] = {1, 3}; 
+
+    for (int idx = 0; idx < 2; idx++) {
+        int i = active_channels[idx]; // i は 0、次のループでは 2 になる
+
+        pressure.output[i] = pressure.target[i];
+        
+        // I項のインテグラル計算
+        if (FB_cycle > 2) {
+            pressureIntegral[i] += ((pressureTarget_buf[i] - pressureCurrent_buf[i])
+                                    + (pressure.target[i] - pressureCurrentFiltered[i]))
+                                    / (2.0F * SAMPLING_FREQUENCY);
+        }
+        
+        // PID制御
+        if (FB_cycle > 1) {
+            // P component
+            pressureP[i] = pressureKP[i] * (pressure.target[i] - pressureCurrentFiltered[i]);
+
+            // I component
+            pressureI[i] = pressureKI[i] * pressureIntegral[i];
+
+            // 各項を足し合わせる
+            pressure.output[i] += pressureP[i] + pressureI[i]; 
+
+            // Update previous value
+            pressureTarget_buf[i] = pressure.target[i];
+            pressureCurrent_buf[i] = pressureCurrentFiltered[i];
+        }
+    }
+    FB_cycle++;
+    return;
+}
+/*
 //圧力フィードバック
 void PressureFeedbackControl() {
     static unsigned int FB_cycle = 0;
@@ -500,9 +555,9 @@ void PressureFeedbackControl() {
     //static double pressureDeviation_buf[DA_CHANNEL_NUMBER]; //前フレームでの偏差
     static bool is_first = true;
     pressureCurrentFiltered[0] = pressure.current[0];
-    pressureCurrentFiltered[1] = pressure.current[1];
     pressureCurrentFiltered[2] = pressure.current[2];
-    pressureCurrentFiltered[3] = pressure.current[3];
+    //pressureCurrentFiltered[2] = pressure.current[2];
+    //pressureCurrentFiltered[3] = pressure.current[3];
 
     //変数初期化
     if(is_first){
@@ -552,7 +607,7 @@ void PressureFeedbackControl() {
     FB_cycle++;
     return;
 } //PressureFeedbackControl()
-
+*/
 
 
 void PressureFeedbackReset(){
@@ -678,7 +733,8 @@ int ADconversion() {
 	for (int i = 0; i < AD_CHANNEL_NUMBER; i++) {
 		pressure.current[i] = k * voltageInput[i] + a;
         if(pressure.current[i] < 0){
-            pressure.current[i] = 0;
+            pressure.current[i] = 0;//aaaaaたまにバグる
+            //printf("pressure.current[%d] is negative. Set to 0.\n", i);
         }
 	}
 	return 0;
@@ -820,23 +876,22 @@ ArmControlNode::ArmControlNode() : Node("dof2_arm_LDPE"){
     pressureKD[1] = this->declare_parameter<double>("pressure_Kd1", 0.0);
 
     // Channel 2
-    pressureKP[2] = this->declare_parameter<double>("pressure_Kp2", 0.0);
-    pressureKI[2] = this->declare_parameter<double>("pressure_Ki2", 0.0);
-    pressureKD[2] = this->declare_parameter<double>("pressure_Kd2", 0.0);
+    //pressureKP[2] = this->declare_parameter<double>("pressure_Kp2", 0.0);
+    //pressureKI[2] = this->declare_parameter<double>("pressure_Ki2", 0.0);
+    //pressureKD[2] = this->declare_parameter<double>("pressure_Kd2", 0.0);
 
     // Channel 3
-    pressureKP[3] = this->declare_parameter<double>("pressure_Kp3", 0.0);
-    pressureKI[3] = this->declare_parameter<double>("pressure_Ki3", 0.0);
-    pressureKD[3] = this->declare_parameter<double>("pressure_Kd3", 0.0);
+    //pressureKP[3] = this->declare_parameter<double>("pressure_Kp3", 0.0);
+    //pressureKI[3] = this->declare_parameter<double>("pressure_Ki3", 0.0);
+    //pressureKD[3] = this->declare_parameter<double>("pressure_Kd3", 0.0);
 
     // ビジュアルPIDパラメータ
-    visual_P[0] = this->declare_parameter<double>("visual_P0", 0.03); 
-    visual_P[1] = this->declare_parameter<double>("visual_P1", 0.03);
-    visual_I[0] = this->declare_parameter<double>("visual_I0", 0.0);
-    visual_I[1] = this->declare_parameter<double>("visual_I1", 0.0);
+    visual_P[0] = this->declare_parameter<double>("visual_P0", 0.05); //aaaaa
+    //visual_P[1] = this->declare_parameter<double>("visual_P1", 0.01);
+    visual_I[0] = this->declare_parameter<double>("visual_I0", 0.02);
+    //visual_I[1] = this->declare_parameter<double>("visual_I1", 0.0);
     visual_D[0] = this->declare_parameter<double>("visual_D0", 0.0);
-    visual_D[1] = this->declare_parameter<double>("visual_D1", 0.0);
-
+    //visual_D[1] = this->declare_parameter<double>("visual_D1", 0.0);
     basePressure = this->declare_parameter<double>("base_pressure", 30.0);
     linkPressure = this->declare_parameter<double>("link_pressure", 4.0);
     targetJointStiffness = this->declare_parameter<double>("target_JointStiffness", 1.20);
@@ -845,7 +900,7 @@ ArmControlNode::ArmControlNode() : Node("dof2_arm_LDPE"){
     ros_pub_ = this->create_publisher<inflatable::msg::VoltageOutput>("/inflatable/voltage_output", 10);
     ros_sub2_ = this->create_subscription<inflatable::msg::VoltageInput>("/inflatable/voltage_input", 10, std::bind(&ArmControlNode::msgCallback_voltage, this, std::placeholders::_1));
     ros_sub3_ = this->create_subscription<geometry_msgs::msg::TransformStamped>("/inflatable/vicon/LDPE_hand/Hand", 10, std::bind(&ArmControlNode::msgCallback_hand, this, std::placeholders::_1));
-    ros_sub4_ = this->create_subscription<geometry_msgs::msg::TransformStamped>("/inflatable/vicon/LDPE_base/base2", 10, std::bind(&ArmControlNode::msgCallback_base, this, std::placeholders::_1));
+    ros_sub4_ = this->create_subscription<geometry_msgs::msg::TransformStamped>("/inflatable/vicon/LDPE_base_v2/Base", 10, std::bind(&ArmControlNode::msgCallback_base, this, std::placeholders::_1));
 
 
 
@@ -874,7 +929,7 @@ void ArmControlNode::open_log_file(){
     char filename[100];
     time_t date_info = time(NULL);
     struct tm *pnow = localtime(&date_info);
-    sprintf(filename, "/home/takahara/ros2_ws/data/2dof_arm_angle/%02d%02d_%02d%02d_%02d.csv", 
+    sprintf(filename, "/home/takahara/ros2_ws/data/1dof_arm_angle/%02d%02d_%02d%02d_%02d.csv", 
         pnow->tm_mon + 1, 
         pnow->tm_mday, 
         pnow->tm_hour, 
@@ -885,19 +940,25 @@ void ArmControlNode::open_log_file(){
 
     ofs_ << "cycle" << ',' << "Time[s]" << ',';
 
-    ofs_ << "q1 target[deg]" << ',' << "q1 current[deg]" << ',' 
-        << "q2 target[deg]" << ',' << "q2 current[deg]" << ',';
-
-    ofs_ << "P1 gain" << ',' << "P2 gain" << ',' << "I1 gain" << ','
-         << "I2 gain" << ',' << "D1 gain" << ',' << "D2 gain" << ',';
-
-    ofs_ << "q0 torque" << ',' << "q1 torque" << ',';
-
-    ofs_ << "q0 P_torque" << ',' << "q0 I_torque" << ',' << "q0 D_torque" << ','
-         << "q1 P_torque" << ',' << "q1 I_torque" << ',' << "q1 D_torque" << ',';
+    ofs_ << "q1 target[deg]" << ',' << "q1 current[deg]" << ',' ;
+       // << "q2 target[deg]" << ',' << "q2 current[deg]" << ',';
 
 
-    for (int i = 0; i < DEGREE_OF_FREEDOM * 2; i++) { 
+
+    ofs_ << "q0 torque" << ',' ;
+    //<< "q1 torque" << ',';
+
+    ofs_ << "q0 P_torque" << ',' << "q0 I_torque" << ',' << "q0 D_torque" << ',';
+         //<< "q1 P_torque" << ',' << "q1 I_torque" << ',' << "q1 D_torque" << ',';
+        
+    ofs_ << "P gain" << ',' << "I gain" << ',';
+
+
+    int active_channels[] = {1, 3};
+
+    for (int idx = 0; idx < 2; idx++) { 
+        int i = active_channels[idx]; // i は 0、次のループでは 2 になる
+
         ofs_ << "Target Pressure" << i << "[kPa]" << ',' 
              << "Output Pressure" << i << "[kPa]" << ',' 
              << "Current Pressure" << i << "[kPa]" << "," 
@@ -906,33 +967,35 @@ void ArmControlNode::open_log_file(){
              << "PressureI" << i << ','
              << "PressureD"<< i << ","; 
     }
+    
     ofs_ << "Link Output1" << ',' << "Link Current1" << ','
          << "Link Output2" << ',' << "Link Current2" << ',';
-    for (int i = 0; i < DEGREE_OF_FREEDOM * 2; i++) {
+
+    for (int idx = 0; idx < 2; idx++) {
+        int i = active_channels[idx]; // ここも同様に 0 と 2 にする
         ofs_ << "Base Pressure" << i << "[kPa]" << ','; 
     }
-    
 
-    ofs_ << "x3 target[m]" << ',' << "y3 target[m]" << ',' << "z3 target[m]" << ','
-         << "x3[m]" << ',' << "y3[m]" << ',' << "z3[m]" << ','
-         << "deviation_x3[m]" << ',' << "deviation_y3[m]" << ',' << "deviation_z3[m]" << ',';
-    ofs_ << "x2[m]" << ',' << "y2[m]" << ',' << "z2[m]" << ',';
+
         
     ofs_ << std::endl;
 }
 
 void ArmControlNode::control_loop_P(){
-    viconUpdateLoop();
+    //viconUpdateLoop();
     printf("cycle = %d\n", cycle);
+    printf("目標角度：%lf [deg]\n", orientation.target.q[0] * 180 / M_PI);
+    printf("手先角度：%lf [deg]\n", orientation.current.q[0] * 180 / M_PI);
     //圧力を表示
-    for (int i = 0; i < 4; i++) {
-        printf(" pressure.target[%i] = %lf\n", i, pressure.target[i]);
-        printf("pressure.current[%i] = %lf\n", i, pressure.current[i]);
-    }
+    printf(" pressure.target[1] = %lf\n", pressure.target[1]);
+    printf("pressure.current[1] = %lf\n", pressure.current[1]);
+    printf(" pressure.target[3] = %lf\n", pressure.target[3]);
+    printf("pressure.current[3] = %lf\n", pressure.current[3]);
     printf(" linkPressure1.output = %lf\n", pressure.output[LINK_CHANNEL_NUMBER1]);
     printf(" linkPressure2.output = %lf\n", pressure.output[LINK_CHANNEL_NUMBER2]);
     printf("linkPressure1.current = %lf\n", pressure.current[6]);
     printf("linkPressure2.current = %lf\n", pressure.current[7]);
+    printf("torque = %lf\n", joint_torque[0]);
 
     int key = getch();
 
@@ -952,7 +1015,7 @@ void ArmControlNode::control_loop_P(){
     }
     //リンクを膨らませる
     if (key == 'l') {
-        pressure.output[LINK_CHANNEL_NUMBER1] = pressure.base[LINK_CHANNEL_NUMBER1];
+        //pressure.output[LINK_CHANNEL_NUMBER1] = pressure.base[LINK_CHANNEL_NUMBER1]; 
         pressure.output[LINK_CHANNEL_NUMBER2] = pressure.base[LINK_CHANNEL_NUMBER2];
     }
 
@@ -961,10 +1024,12 @@ void ArmControlNode::control_loop_P(){
         setup_flag = false;
         VisualFeedback_flag = false;
         PressureFeedback_flag = true;
-        pressure.target[0] = pressure.base[0];
-        pressure.target[1] = pressure.base[1];
-        pressure.target[2] = pressure.base[2];
-        pressure.target[3] = pressure.base[3];
+        //pressure.target[0] = pressure.base[0];
+        pressure.target[0] = 0;
+        pressure.target[1] = pressure.base[0];
+        //pressure.target[2] = pressure.base[0];
+        pressure.target[2] = 0;;
+        pressure.target[3] = pressure.base[0];
         pressure.output[4] = 0;
         pressure.output[5] = 0;
         pressure.output[6] = 0;
@@ -977,11 +1042,10 @@ void ArmControlNode::control_loop_P(){
         setup_flag = true;
         VisualFeedback_flag = true;
         PressureFeedback_flag = true;
-        // 第1関節角(台座側)
-        orientation.target.q[0] = 30.0 / 180 * M_PI;//aaaaa
-        // 第2関節角(手先側)
-        orientation.target.q[1] = 30.0 / 180 * M_PI;
-        //SetPositionTarget(target_x,target_y,target_z);
+        //第1関節角(台座側)
+        orientation.target.q[0] = 75.0 / 180 * M_PI;//aaaaa
+        //pressure.target[0] = 0;
+        //pressure.target[2] = MAXIMUM_PRESSURE;
     }
 
 
@@ -1013,7 +1077,7 @@ void ArmControlNode::control_loop_P(){
 
     if(VisualFeedback_flag){
         orientation.current.q[0] = LowPassFilter_Angle0.Filter(orientation.current.q[0], 5.0);
-        orientation.current.q[1] = LowPassFilter_Angle1.Filter(orientation.current.q[1], 5.0);
+        //orientation.current.q[1] = LowPassFilter_Angle1.Filter(orientation.current.q[1], 5.0);
 
         for (int i = 0; i < DEGREE_OF_FREEDOM; i++){
             double required_torque = VisualFeedbackControl(orientation.target.q[i], orientation.current.q[i], i);
@@ -1023,16 +1087,16 @@ void ArmControlNode::control_loop_P(){
                 // 正の方向（角度が大きくなる方向）に動かすには ch1 を膨らませ、ch0 を縮める
                 //pressure.target[0] = basePressure - pdf / 2.0F; // ch0: 膨らむと小さくなる
                 //pressure.target[1] = basePressure + pdf / 2.0F; // ch1: 膨らむと大きくなる
-                pressure.target[0] = basePressure - pdf / 2.0F; // ch1: 膨らむと小さくなる
-                pressure.target[1] = basePressure + pdf / 2.0F; // ch0: 膨らむと大きくなる
+                pressure.target[3] = basePressure + pdf / 2.0F; // ch1: 膨らむと小さくなる
+                pressure.target[1] = basePressure - pdf / 2.0F; // ch0: 膨らむと大きくなる
                 
             } 
-            else if (i == 1) {
-                // 手先側の関節を正の方向（角度が大きくなる方向）に動かすには、ch3を膨らませ、ch2を縮める
-                // 同様に、正の方向に動かすには ch3 を膨らませ、ch2 を縮める
-                pressure.target[2] = basePressure - pdf / 2.0F; // ch2: 膨らむと小さくなる
-                pressure.target[3] = basePressure + pdf / 2.0F; // ch3: 膨らむと大きくなる
-            }
+            //else if (i == 1) {
+            //    // 手先側の関節を正の方向（角度が大きくなる方向）に動かすには、ch3を膨らませ、ch2を縮める
+            //    // 同様に、正の方向に動かすには ch3 を膨らませ、ch2 を縮める
+            //    //pressure.target[2] = basePressure - pdf / 2.0F; // ch2: 膨らむと小さくなる
+            //    //pressure.target[3] = basePressure + pdf / 2.0F; // ch3: 膨らむと大きくなる
+            //}
         }
 
     }
@@ -1062,18 +1126,26 @@ void ArmControlNode::control_loop_P(){
     if(setup_flag){
     ofs_ << cycle << ","<< timer.now_d.seconds() << ',';
  
-    ofs_ << orientation.target.q[0] * 180 / M_PI << ',' << orientation.current.q[0] * 180 / M_PI << ','
-         << orientation.target.q[1] * 180 / M_PI << ',' << orientation.current.q[1] * 180 / M_PI << ',';    
+    ofs_ << orientation.target.q[0] * 180 / M_PI << ',' << orientation.current.q[0] * 180 / M_PI << ',';
+         //<< orientation.target.q[1] * 180 / M_PI << ',' << orientation.current.q[1] * 180 / M_PI << ',';    
 
-    ofs_ << visual_P[0] << ',' << visual_P[1] << ',' << visual_I[0] << ',' << visual_I[1] << ',' << visual_D[0] << ',' << visual_D[1] << ',';
+    //ofs_ << visual_P[0] << ',' << visual_P[1] << ',' << visual_I[0] << ',' << visual_I[1] << ',' << visual_D[0] << ',' << visual_D[1] << ',';
 
-    ofs_ << joint_torque[0] << ',' << joint_torque[1] << ',';
+    ofs_ << joint_torque[0] << ',' ;
+    //<< joint_torque[1] << ',';
 
-    ofs_ << P_element[0] << ',' << I_element[0] << ',' << D_element[0] << ','
-         << P_element[1] << ',' << I_element[1] << ',' << D_element[1] << ',';
+    ofs_ << P_element[0] << ',' << I_element[0] << ',' << D_element[0] << ',';
+         //<< P_element[1] << ',' << I_element[1] << ',' << D_element[1] << ',';
+
+    ofs_ << visual_P[0] << ',' << visual_I[0] << ',';
 
     
-    for (int i = 0; i < DEGREE_OF_FREEDOM * 2; i++) {
+// 実際に使用するアクチュエータ番号（0と2）を指定
+    int active_channels[] = {1, 3};
+
+    for (int idx = 0; idx < 2; idx++) {
+        int i = active_channels[idx]; // i は 0、次のループでは 2 になる
+        
         ofs_ << pressure.target[i] << ',' 
              << pressure.output[i] << ',' 
              << pressure.current[i] << ',' 
@@ -1082,19 +1154,16 @@ void ArmControlNode::control_loop_P(){
              << pressureI[i] << ',' 
              << pressureD[i] << ',';
     }
+    
     ofs_ << pressure.output[LINK_CHANNEL_NUMBER1] << ',' << pressure.current[LINK_CHANNEL_NUMBER1] << ','
          << pressure.output[LINK_CHANNEL_NUMBER2] << ',' << pressure.current[LINK_CHANNEL_NUMBER2] << ',';
     
-    for (int i = 0; i < DEGREE_OF_FREEDOM * 2; i++) {
+    for (int idx = 0; idx < 2; idx++) {
+        int i = active_channels[idx]; // ここも同様に 0 と 2 にする
         ofs_ << pressure.base[i] << ','; 
     }
     
 
-    ofs_ << pos.target.x[3] << ',' << pos.target.y[3] << ',' << pos.target.z[3] << ','
-         << pos.current.x[3] << ',' << pos.current.y[3] << ',' << pos.current.z[3] << ','
-         << pos.deviation.x[3] << ',' << pos.deviation.y[3] << ',' << pos.deviation.z[3] << ',';
-    ofs_ << pos.current.x[2] << ',' << pos.current.y[2] << ',' << pos.current.z[2] << ',';
-    
 
 
 
@@ -1103,87 +1172,3 @@ void ArmControlNode::control_loop_P(){
 #endif
     cycle++;
 }
-
-
-//返り値：重力によるトルク
-void CompensateGravity()
-{
-    // ===== Joint angles =====
-    const float q1 = orientation.current.q[1];
-    const float q2 = orientation.current.q[2];
-
-    const float yaw = orientation.current.q[0];
-
-    // ===== Trigonometric values =====
-    const float s1 = sinf(q1);
-    const float c1 = cosf(q1);
-
-    const float s12 = sinf(q1 + q2);
-    const float c12 = cosf(q1 + q2);
-
-    const float cy = cosf(yaw);
-    const float sy = sinf(yaw);
-
-    // ===== Total masses =====
-    float m1 = param.m_l[1] + param.m_a[1];
-    float m2 = param.m_l[2] + param.m_a[2];
-
-    // ===== Link center of gravity =====
-    float x_l1 = 0.5F * param.link[1] * s1 * cy;
-    float y_l1 = 0.5F * param.link[1] * s1 * sy;
-    float z_l1 = 0.5F * param.link[1] * c1;
-
-    float x_l2 = pos.current.x[1]
-               + 0.5F * param.link[2] * s12 * cy;
-
-    float y_l2 = pos.current.y[1]
-               + 0.5F * param.link[2] * s12 * sy;
-
-    float z_l2 = pos.current.z[1]
-               + 0.5F * param.link[2] * c12;
-
-    // ===== Combined center of gravity =====
-    float x_g1 = (param.m_l[1] * x_l1 + param.m_a[1] * pos.current.x[1]) / m1;
-    float y_g1 = (param.m_l[1] * y_l1 + param.m_a[1] * pos.current.y[1]) / m1;
-    float z_g1 = (param.m_l[1] * z_l1 + param.m_a[1] * pos.current.z[1]) / m1;
-
-    float x_g2 = (param.m_l[2] * x_l2 + param.m_a[2] * pos.current.x[2]) / m2;
-    float y_g2 = (param.m_l[2] * y_l2 + param.m_a[2] * pos.current.y[2]) / m2;
-    float z_g2 = (param.m_l[2] * z_l2 + param.m_a[2] * pos.current.z[2]) / m2;
-
-    // ===== Distance from joint to center of gravity =====
-    param.link_g[1] = GetDistance(
-        x_g1, y_g1, z_g1,
-        pos.current.x[1],
-        pos.current.y[1],
-        pos.current.z[1]);
-
-    param.link_g[2] = GetDistance(
-        x_g2, y_g2, z_g2,
-        pos.current.x[2],
-        pos.current.y[2],
-        pos.current.z[2]);
-
-    // ===== Gravity compensation torque =====
-
-    // Base joint
-    param.torque_g[0] = 0.0F;
-
-    // Joint 1
-    param.torque_g[1] =
-        -(m1 * GRAVITY_ACC * param.link_g[1]
-        + m2 * GRAVITY_ACC * param.link[1]) * s1
-        -(m2 * GRAVITY_ACC * param.link_g[2]) * s12;
-
-    // Joint 2
-    param.torque_g[2] =
-        -(m2 * GRAVITY_ACC * param.link_g[2]) * s12;
-}
-
-float GetDistance(float x1, float y1, float z1, float x2, float y2, float z2) {
-	float distance;
-	distance = pow((x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1) + (z2 - z1) * (z2 - z1), 0.5F);
-
-	return distance;
-}
-
